@@ -20,8 +20,8 @@ class Joint:
     symbol: sympy.Symbol
     type: JointType
     name: str = None
-    upper_limit: float = pi
-    lower_limit: float =-pi
+    upper_limit: float = 2*pi
+    lower_limit: float =-2*pi
 
     def __post_init__(self):
         if self.name is None:
@@ -259,7 +259,7 @@ class DenavitDK:
             error = np.linalg.norm(deltaPoseEuler)**2
             print(error)
             
-        # print(f"Solution with error {error} with {iterations} iterations left")
+        print(f"Position solution with error {error} with {iterations} iterations left")
         return joints.ravel()
 
     def inverseEval(self, init_joint_pose, end_pose):
@@ -280,6 +280,7 @@ class DenavitDK:
             deltaJoints = np.matmul(currentJacobianInv,deltaPoseEuler)
 
             joints = joints + deltaJoints
+            joints = joints % (2*pi)
 
             currentPoseEuler = self._matrixToEuler(self.eval(joints.ravel()))
             deltaPoseEuler = endPoseEuler - currentPoseEuler
@@ -287,8 +288,7 @@ class DenavitDK:
             print(error)
             
         print(f"Solution with error {error} with {iterations} iterations left")
-        joints = joints % (2*pi)
-        return joints
+        return list(joints.ravel())
 
     def genCCode(self, filename:str=None, simplify:bool = False):
         from sympy.utilities.codegen import codegen
@@ -319,6 +319,7 @@ class DenavitDK:
             # File heading
             robfile.write("<?xml version='1.0'?>\n\n")
             robfile.write("<!-- URDF file generated with KinematicsGenerator package -->\n")
+            robfile.write("<!-- https://github.com/gmescudero/KinematicsGenerator -->\n")
             robfile.write(f"<robot name=\"{self.name}\">\n")
             # Add world link
             robfile.write(self._genURDFWorldLink(links))
