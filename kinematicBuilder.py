@@ -1,9 +1,74 @@
 from cmath import pi
 import numpy as np
 import sympy
-from sympy.abc import x,y,z,a,d
+from sympy.abc import x,y,z
 from dataclasses import dataclass
 from enum import Enum
+
+class Rotations:
+    def __init__(self):
+        self.alpha  = sympy.Symbol('alpha')
+        self.beta  = sympy.Symbol('beta')
+        self.gamma = sympy.Symbol('gamma')
+        self.theta = sympy.Symbol('theta')
+        self.zRotM = sympy.Matrix([
+            [sympy.cos(self.theta),-sympy.sin(self.theta), 0],
+            [sympy.sin(self.theta), sympy.cos(self.theta), 0],
+            [0                    , 0                    , 1]
+        ])
+        self.yRotM = sympy.Matrix([
+            [sympy.cos(self.theta), 0,-sympy.sin(self.theta)],
+            [0                    , 1, 0                    ],
+            [sympy.sin(self.theta), 0, sympy.cos(self.theta)]
+        ])
+        self.xRotM = sympy.Matrix([
+            [1, 0                    , 0                    ],
+            [0, sympy.cos(self.theta),-sympy.sin(self.theta)],
+            [0, sympy.sin(self.theta), sympy.cos(self.theta)]
+        ])
+    
+    def eulerToMatrixSequenceSym(self,sequence:str, a=sympy.abc.a,b=sympy.abc.b,c=sympy.abc.c):
+        if len(sequence) != 3: return None
+        rotSymbols = [a,b,c]
+        rotM = sympy.eye(3)
+        for axis,symbol in zip(list(sequence),rotSymbols):
+            if axis is "x":
+                rotM = rotM*self.xRotM.subs(self.theta,symbol)
+            elif axis is "y":
+                rotM = rotM*self.yRotM.subs(self.theta,symbol)
+            elif axis is "z":
+                rotM = rotM*self.zRotM.subs(self.theta,symbol)
+        return rotM
+    
+    def zyxToMatrixSym(self,z,y,x):
+        return self.eulerToMatrixSequenceSym("zyx",z,y,x)
+    
+    def xyzToMatrixSym(self,x,y,z):
+        return self.eulerToMatrixSequenceSym("xyz",x,y,z)
+
+    def matrixToEulerXYZSym(self, matrix):
+        pos = matrix[0:3,3]
+        R = matrix[0:3,0:3]
+        sy = sympy.sqrt(R[0,0]**2 +  R[1,0]**2)
+        x = sympy.atan2(R[2,1] , R[2,2])
+        y = sympy.atan2(-R[2,0], sy)
+        z = sympy.atan2(R[1,0], R[0,0])
+        return sympy.Matrix([[pos[0]],[pos[1]],[pos[2]],[x],[y],[z]])
+        
+    def matrixToEulerXYZ(self, matrix):
+        pos = matrix[0:3,3]
+        R = matrix[0:3,0:3]
+        sy = np.sqrt(R[0,0]**2 +  R[1,0]**2)
+        if  sy > 1e-6 :
+            x = np.arctan2(R[2,1] , R[2,2])
+            y = np.arctan2(-R[2,0], sy)
+            z = np.arctan2(R[1,0], R[0,0])
+        else :
+            # print("Singular")
+            x = np.arctan2(-R[1,2], R[1,1])
+            y = np.arctan2(-R[2,0], sy)
+            z = 0
+        return np.transpose(np.array([[pos[0], pos[1], pos[2], x, y, z]]))
 
 class JointType(Enum):
     """
@@ -187,7 +252,7 @@ class DenavitDK:
         return self.directTransformSym[0:3,3]
     
     def _jacobian(self):
-        eulerTransofrm = self._matrixToEulerSym(self.directTransformSym)
+        eulerTransofrm = Rotations().matrixToEulerXYZSym(self.directTransformSym)
         jacobian = eulerTransofrm.jacobian(self.jointsSym)
         return jacobian
 
@@ -214,35 +279,14 @@ class DenavitDK:
         self.jacobian = sympy.nsimplify(self.jacobian,tolerance=1e-10,rational=True)
         return self.jacobian
     
-    def _matrixToEulerSym(self, matrix):
-        pos = matrix[0:3,3]
-        R = matrix[0:3,0:3]
-        sy = sympy.sqrt(R[0,0]**2 +  R[1,0]**2)
-        x = sympy.atan2(R[2,1] , R[2,2])
-        y = sympy.atan2(-R[2,0], sy)
-        z = sympy.atan2(R[1,0], R[0,0])
-        return sympy.Matrix([[pos[0]],[pos[1]],[pos[2]],[x],[y],[z]])
-        
-    def _matrixToEuler(self, matrix):
-        pos = matrix[0:3,3]
-        R = matrix[0:3,0:3]
-        sy = np.sqrt(R[0,0]**2 +  R[1,0]**2)
-        if  sy > 1e-6 :
-            x = np.arctan2(R[2,1] , R[2,2])
-            y = np.arctan2(-R[2,0], sy)
-            z = np.arctan2(R[1,0], R[0,0])
-        else :
-            # print("Singular")
-            x = np.arctan2(-R[1,2], R[1,1])
-            y = np.arctan2(-R[2,0], sy)
-            z = 0
-        return np.transpose(np.array([[pos[0], pos[1], pos[2], x, y, z]]))
+    # def _jacobianPinv(self):
+    #     sympy.singular_value_decomposition()
 
     def inversePositionEval(self, init_joint_pose, end_pose):
         iterations = 1000
         joints = np.transpose(np.array([init_joint_pose]))
         endPoseEuler= np.transpose(np.array([end_pose]))
-        currentPoseEuler = self._matrixToEuler(self.eval(init_joint_pose))[0:3]
+        currentPoseEuler = Rotations().matrixToEulerXYZ(self.eval(init_joint_pose))[0:3]
         deltaPoseEuler = endPoseEuler - currentPoseEuler
         error = np.linalg.norm(deltaPoseEuler)**2
         while error > 1e-4 and iterations > 0:
@@ -254,12 +298,12 @@ class DenavitDK:
 
             joints = joints + deltaJoints
 
-            currentPoseEuler = self._matrixToEuler(self.eval(joints.ravel()))[0:3]
+            currentPoseEuler = Rotations().matrixToEulerXYZ(self.eval(joints.ravel()))[0:3]
             deltaPoseEuler = endPoseEuler - currentPoseEuler
             error = np.linalg.norm(deltaPoseEuler)**2
             print(error)
             
-        print(f"Position solution with error {error} with {iterations} iterations left")
+        print(f"Solution with error {error} in {1000-iterations} iterations")
         return joints.ravel()
 
     def inverseEval(self, init_joint_pose, end_pose):
@@ -268,8 +312,8 @@ class DenavitDK:
         # Adjust orientation
         iterations = 1000
         joints = np.transpose(np.array([joints]))
-        endPoseEuler = self._matrixToEuler(end_pose)
-        currentPoseEuler = self._matrixToEuler(self.eval(init_joint_pose))
+        endPoseEuler = Rotations().matrixToEulerXYZ(end_pose)
+        currentPoseEuler = Rotations().matrixToEulerXYZ(self.eval(init_joint_pose))
         deltaPoseEuler = endPoseEuler - currentPoseEuler
         error = np.linalg.norm(deltaPoseEuler)**2
         while error > 1e-4 and iterations > 0:
@@ -282,12 +326,12 @@ class DenavitDK:
             joints = joints + deltaJoints
             joints = joints % (2*pi)
 
-            currentPoseEuler = self._matrixToEuler(self.eval(joints.ravel()))
+            currentPoseEuler = Rotations().matrixToEulerXYZ(self.eval(joints.ravel()))
             deltaPoseEuler = endPoseEuler - currentPoseEuler
             error = np.linalg.norm(deltaPoseEuler)**2
             print(error)
             
-        print(f"Solution with error {error} with {iterations} iterations left")
+        print(f"Solution with error {error} in {1000-iterations} iterations")
         return list(joints.ravel())
 
     def genCCode(self, filename:str=None, simplify:bool = False):
@@ -454,6 +498,293 @@ class DenavitDK:
         string += '\n'
         return string
 
+
+class TwoLinkPlanar:
+
+    def __init__(self, a1=None, a2=None) -> None:
+        self.a1 = sympy.Symbol('a_1') if a1 is None else a1
+        self.a2 = sympy.Symbol('a_2') if a2 is None else a2
+        self.q1 = sympy.Symbol('q_1')
+        self.q2 = sympy.Symbol('q_2')
+        self.x  = x
+        self.y  = y
+        self.theta = sympy.Symbol('theta')
+        self.directLambda  = lambda q1,q2: None
+        self.inverseLambda = lambda x,y: None
+        self._resetSymbolsAndLambdas()
+
+    def directKinSymbols(self):
+        x_dk     = self.a1*sympy.cos(self.q1) + self.a2*sympy.cos(self.q1+self.q2)
+        y_dk     = self.a1*sympy.sin(self.q1) + self.a2*sympy.sin(self.q1+self.q2)
+        theta_dk = self.q1 + self.q2
+        T = sympy.Matrix((x_dk,y_dk,0,theta_dk,0,0))
+        return T
+
+    def directKinHomoTSymbols(self):
+        x_dk,y_dk,z_dk,yaw_dk,pitch_dk,roll_dk = self.directKinSymbols()
+        rotM = Rotations().zyxToMatrixSym(yaw_dk,pitch_dk,roll_dk)
+        translation = sympy.Matrix((x_dk,y_dk,z_dk))
+        T = sympy.Matrix((
+            (rotM            , translation    ),
+            (sympy.zeros(1,3), sympy.ones(1,1))
+        ))
+        return T
+
+    def inverseKinSymbols(self):
+        q2_ik = sympy.acos((self.x**2 + self.y**2 - self.a1**2 - self.a2**2)/(2*self.a1*self.a2))
+        q1_ik = sympy.atan2(self.y,self.x) - sympy.atan2(self.a2*sympy.sin(q2_ik), self.a1 + self.a2*sympy.cos(q2_ik))
+        return sympy.Matrix((q1_ik,q2_ik))
+
+    def setLengths(self,a1,a2):
+        self.a1 = a1
+        self.a2 = a2
+        self._resetSymbolsAndLambdas()
+    
+    def setJointCoordinates(self,joint1,joint2):
+        self.q1 = joint1
+        self.q2 = joint2
+        self._resetSymbolsAndLambdas()
+
+    def setCartesianCoordinates(self,coord1,coord2):
+        self.x = coord1
+        self.y = coord2
+        self._resetSymbolsAndLambdas()
+    
+    def _resetSymbolsAndLambdas(self):
+        # Compute simbolic kinematics
+        self.directSym  = self.directKinHomoTSymbols()
+        self.inverseSym = self.inverseKinSymbols()
+        # Compute lambda kinematic functions 
+        try:
+            self.directLambda  = sympy.lambdify((self.q1,self.q2),self.directSym)
+            self.inverseLambda = sympy.lambdify((self.x,self.y),self.inverseSym)
+        except SyntaxError:
+            self.directLambda  = lambda q1,q2: None
+            self.inverseLambda = lambda x,y: None
+
+class TwoLinkAndBase():
+
+    def __init__(self, a1=None, a2=None) -> None:
+        self.a1 = sympy.Symbol('a_1') if a1 is None else a1
+        self.a2 = sympy.Symbol('a_2') if a2 is None else a2
+        self.q1 = sympy.Symbol('q_1')
+        self.q2 = sympy.Symbol('q_2')
+        self.q3 = sympy.Symbol('q_3')
+        self.x = x
+        self.y = y
+        self.z = z
+        self._r = sympy.sqrt(self.x**2 + self.y**2)
+        self.twoLink = TwoLinkPlanar(a1,a2)
+        self.twoLink.setCartesianCoordinates(self._r, self.z)
+        self.twoLink.setJointCoordinates(self.q2,self.q3)
+        # Initialize symbolic kinematics
+        self.directSym  = self.directKinHomoTSymbols()
+        self.inverseSym = self.inverseKinSymbols()   
+        # Initialize lambdas
+        self.directLambda  = lambda q1,q2,q3: None
+        self.inverseLambda = lambda x, y, z : None
+        # Compute symbolic kinematics and lambda functions
+        self._resetSymbolsAndLambdas()
+
+    def setLengths(self,a1,a2):
+        self.a1 = a1
+        self.a2 = a2
+        self._resetSymbolsAndLambdas()
+    
+    def setJointCoordinates(self,joint1,joint2,joint3):
+        self.q1 = joint1
+        self.q2 = joint2
+        self.q3 = joint3
+        self._resetSymbolsAndLambdas()
+
+    def setCartesianCoordinates(self,coord1,coord2,coord3):
+        self.x = coord1
+        self.y = coord2
+        self.z = coord3
+        self._resetSymbolsAndLambdas()
+        
+    def directKinSymbols(self):
+        r_dk,z_dk,_,pitch_dk,_,_ = self.twoLink.directKinSymbols()
+        x_dk = r_dk*sympy.cos(self.q1)
+        y_dk = r_dk*sympy.sin(self.q1)
+        yaw_dk = self.q1
+        roll_dk = 0
+        T = sympy.Matrix((x_dk,y_dk,z_dk,yaw_dk,pitch_dk,roll_dk))
+        return T
+
+    def directKinHomoTSymbols(self):
+        x_dk,y_dk,z_dk,yaw_dk,pitch_dk,roll_dk = self.directKinSymbols()
+        rotM = Rotations().zyxToMatrixSym(yaw_dk,pitch_dk,roll_dk)
+        translation = sympy.Matrix((x_dk,y_dk,z_dk))
+        T = sympy.Matrix((
+            (rotM            , translation    ),
+            (sympy.zeros(1,3), sympy.ones(1,1))
+        ))
+        return T
+
+    def inverseKinSymbols(self):
+        q1_ik = sympy.atan2(self.y,self.x)
+        q2_ik,q3_ik = self.twoLink.inverseKinSymbols()
+        return sympy.Matrix((q1_ik,q2_ik,q3_ik))
+        
+    def _resetSymbolsAndLambdas(self):
+        # Compute simbolic kinematics
+        self.directSym  = self.directKinHomoTSymbols()
+        self.inverseSym = self.inverseKinSymbols()
+        # Compute lambda kinematic functions 
+        try:
+            self.directLambda  = sympy.lambdify((self.q1,self.q2,self.q3),self.directSym)
+            self.inverseLambda = sympy.lambdify((self.x, self.y, self.z), self.inverseSym)
+        except SyntaxError:
+            self.directLambda  = lambda q1,q2,q3: None
+            self.inverseLambda = lambda x, y, z : None
+
+
+class SphericalWrist:
+    def __init__(self, sequence:str) -> None:
+        self.q1 = sympy.Symbol('q_1')
+        self.q2 = sympy.Symbol('q_2')
+        self.q3 = sympy.Symbol('q_3')
+        self.yaw   = sympy.Symbol('gamma')
+        self.pitch = sympy.Symbol('beta')
+        self.roll  = sympy.Symbol('alpha')
+        self.sequence = sequence
+        self.singularities = {}
+        # Initialize symbolic kinematics
+        self.directSym  = self.directKinHomoTSymbols()
+        self.inverseSym = self.inverseKinSymbols()   
+        # Initialize lambdas
+        self.directLambda  = lambda q1,q2,q3: None
+        self.inverseLambda = lambda x, y, z : None
+        # Cmpute symbolic kinematics and lambda functions
+        self._resetSymbolsAndLambdas()
+
+    def setJointCoordinates(self,joint1,joint2,joint3):
+        self.q1 = joint1
+        self.q2 = joint2
+        self.q3 = joint3
+        self._resetSymbolsAndLambdas()
+
+    def setCartesianCoordinates(self,coord1,coord2,coord3):
+        self.yaw   = coord1
+        self.pitch = coord2
+        self.roll  = coord3
+        self._resetSymbolsAndLambdas()
+
+    def directKinHomoTSymbols(self):
+        self.rotM = Rotations().eulerToMatrixSequenceSym(self.sequence,self.q1,self.q2,self.q3)
+        return sympy.Matrix((
+            (self.rotM       , sympy.zeros(3,1) ),
+            (sympy.zeros(1,3), sympy.ones(1,1)  )
+        ))
+
+    def inverseKinSymbols(self):
+        rotM = Rotations().eulerToMatrixSequenceSym(self.sequence,self.yaw,self.pitch,self.roll)
+        if self.sequence is "xyx":
+            q1_dk = sympy.atan2(-rotM[1,0], rotM[2,0])
+            q2_dk = sympy.acos(  rotM[0,0])
+            q3_dk = sympy.atan2( rotM[0,1], rotM[0,2])
+            self.singularities.update({self.pitch:0})
+        else:
+            return None
+
+        return sympy.Matrix((q1_dk,q2_dk,q3_dk))
+
+    def direct(self,q1,q2,q3):
+        return self.directLambda(q1,q2,q3)
+    
+    def inverse(self,y,p,r):
+        return self.inverseLambda(y,p,r)
+
+    def _resetSymbolsAndLambdas(self):
+        # Compute simbolic kinematics
+        self.directSym  = self.directKinHomoTSymbols()
+        self.inverseSym = self.inverseKinSymbols()
+        print(f"Singularities in {self.singularities}")
+        # Compute direct kinematic symbols
+        dkSymbols = self._orderedSymbolsFromExpr(self.directSym)
+        # Compute lambda kinematic functions 
+        try:
+            self.directLambda  = sympy.lambdify(dkSymbols,self.directSym)
+            self.inverseLambda = sympy.lambdify((self.yaw, self.pitch, self.roll), self.inverseSym)
+        except SyntaxError:
+            self.directLambda  = lambda q1,q2,q3: None
+            self.inverseLambda = lambda x, y, z : None
+    
+    def _orderedSymbolsFromExpr(self,expression):
+        names = [sym.name for sym in expression.free_symbols]
+        names.sort()
+        return [sympy.Symbol(n) for n in names]
+
+
+class Decoupled6DOF:
+    def __init__(self,a1=None,a2=None) -> None:
+        self.a1 = sympy.Symbol('a_1') if a1 is None else a1
+        self.a2 = sympy.Symbol('a_2') if a2 is None else a2
+        self.q1 = sympy.Symbol('q_1')
+        self.q2 = sympy.Symbol('q_2')
+        self.q3 = sympy.Symbol('q_3')
+        self.q4 = sympy.Symbol('q_4')
+        self.q5 = sympy.Symbol('q_5')
+        self.q6 = sympy.Symbol('q_6')
+        self.x = x
+        self.y = y
+        self.z = z
+        self.yaw   = sympy.Symbol('gamma')
+        self.pitch = sympy.Symbol('beta')
+        self.roll  = sympy.Symbol('alpha')
+        self.positionSide    = TwoLinkAndBase(a1,a2)
+        self.positionSide.setCartesianCoordinates(self.x,self.y,self.z)
+        self.positionSide.setJointCoordinates(self.q1,self.q2,self.q3)
+        self.orientationSide = SphericalWrist("xyx")
+        self.orientationSide.setCartesianCoordinates(self.yaw,self.pitch,self.roll)
+        self.orientationSide.setJointCoordinates(self.q4,self.q5,self.q6)
+        # Initialize symbolic kinematics
+        self.directSym  = self.directKinHomoTSymbols()
+        self.inverseSym = self.inverseKinSymbols()   
+        # Initialize lambdas
+        self.directLambda  = lambda q1,q2,q3: None
+        self.inverseLambda = lambda x, y, z : None
+        # Compute symbolic kinematics and lambda functions
+        self._resetSymbolsAndLambdas()
+
+    def directKinHomoTSymbols(self):
+        return self.orientationSide.directKinHomoTSymbols() * self.positionSide.directKinHomoTSymbols()
+
+    def inverseKinSymbols(self):
+        positionKin    = self.positionSide.inverseKinSymbols()
+        orientationFromPositon = sympy.Matrix(self.positionSide.directKinSymbols()[3:])
+        orientationKin = self.orientationSide.inverseKinSymbols()
+        orientationFromPositon = orientationFromPositon.subs(self.q1,-positionKin[0])
+        orientationFromPositon = orientationFromPositon.subs(self.q2,-positionKin[1])
+        orientationFromPositon = orientationFromPositon.subs(self.q3,-positionKin[2])
+        
+        return sympy.Matrix((positionKin,orientationFromPositon+orientationKin))
+        
+    def direct(self,q1,q2,q3,q4,q5,q6):
+        return self.directLambda(q1,q2,q3,q4,q5,q6)
+
+    def inverse(self,x,y,z,yaw,pitch,roll):
+        return self.inverseLambda(x,y,z,yaw,pitch,roll)
+
+    def _resetSymbolsAndLambdas(self):
+        # Compute simbolic kinematics
+        self.directSym  = self.directKinHomoTSymbols()
+        # self.inverseSym = self.inverseKinSymbols()
+        # Compute direct kinematic symbols
+        dkSymbols = self._orderedSymbolsFromExpr(self.directSym)
+        # Compute lambda kinematic functions 
+        try:
+            self.directLambda  = sympy.lambdify(dkSymbols,self.directSym)
+            self.inverseLambda = sympy.lambdify((self.x, self.y, self.z, self.yaw, self.pitch, self.roll), self.inverseSym)
+        except SyntaxError:
+            self.directLambda  = lambda q1,q2,q3,q4,q5,q6: None
+            self.inverseLambda = lambda x, y, z, yaw,pch,rol: None
+
+    def _orderedSymbolsFromExpr(self,expression):
+        names = [sym.name for sym in expression.free_symbols]
+        names.sort()
+        return [sympy.Symbol(n) for n in names]
 
 if __name__ == "__main__" :
     T1 = DenavitRow(pi/2,   0, 0, pi/2,  Joint(sympy.Symbol('q_1'),JointType.PRISMATIC))
