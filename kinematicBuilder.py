@@ -32,11 +32,11 @@ class Rotations:
         rotSymbols = [a,b,c]
         rotM = sympy.eye(3)
         for axis,symbol in zip(list(sequence),rotSymbols):
-            if axis is "x":
+            if   axis == "x":
                 rotM = rotM*self.xRotM.subs(self.theta,symbol)
-            elif axis is "y":
+            elif axis == "y":
                 rotM = rotM*self.yRotM.subs(self.theta,symbol)
-            elif axis is "z":
+            elif axis == "z":
                 rotM = rotM*self.zRotM.subs(self.theta,symbol)
         return rotM
     
@@ -450,8 +450,14 @@ class DenavitDK:
             # Join the two visuals
             if   1e-6 > link:
                 angle = 0
-            elif 1e-6 > d:
+            elif 1e-6 > d and 0 < a:
                 angle = pi/2
+            elif 1e-6 > d and 0 > a:
+                angle = -pi/2
+            elif 1e-6 > a and 0 < d:
+                angle = 0
+            elif 1e-6 > a and 0 > d:
+                angle = pi
             else:
                 angle = np.arctan2(a/link,d/link)
             string += f'\t<joint name="{name}_joint" type="fixed">\n'
@@ -680,7 +686,7 @@ class SphericalWrist:
 
     def inverseKinSymbols(self):
         rotM = Rotations().eulerToMatrixSequenceSym(self.sequence,self.yaw,self.pitch,self.roll)
-        if self.sequence is "xyx":
+        if self.sequence == "xyx":
             q1_dk = sympy.atan2(-rotM[1,0], rotM[2,0])
             q2_dk = sympy.acos(  rotM[0,0])
             q3_dk = sympy.atan2( rotM[0,1], rotM[0,2])
