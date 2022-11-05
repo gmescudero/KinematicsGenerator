@@ -385,7 +385,6 @@ class DenavitDK:
     def _genURDFLinks(self,links:list) -> str:
         string = ''
         density = 1
-        transM = np.eye(4)
         linksNum = 1
         material = URDFMaterials()
         material_str = material.getCurrentMaterialStr()
@@ -393,7 +392,7 @@ class DenavitDK:
         radius = np.linalg.norm(zeroPose[0:3])/70
         radius_delta = radius/(len(self.denavitRows)+1)
         for dr in self.denavitRows:
-            th,d,a,af = dr.dhParams
+            _,d,a,_ = dr.dhParams
             link = np.sqrt(dr.dhParams[1]**2 + dr.dhParams[2]**2)
             if link > 1e-9 and dr.joint is not None: radius -= radius_delta
             mass = density*link*pi*radius**2
