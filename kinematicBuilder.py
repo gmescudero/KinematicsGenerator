@@ -787,9 +787,19 @@ class Decoupled6DOF:
         return [sympy.Symbol(n) for n in names]
 
 if __name__ == "__main__" :
-    T1 = DenavitRow(pi/2,   0, 0, pi/2,  Joint(sympy.Symbol('q_1'),JointType.PRISMATIC))
-    T2 = DenavitRow(pi/2,   0, 0, -pi/2, Joint(sympy.Symbol('q_2'),JointType.PRISMATIC))
-    T3 = DenavitRow(0,      0, 0, 0,     Joint(sympy.Symbol('q_3'),JointType.PRISMATIC))
+    ar = 10
+    fa = 5
+    palm = 1
+    fing = 1.2
 
-    T_cartesian = DenavitDK((T1,T2,T3),"Cartesian")
-    print(T_cartesian.directTransformSym)
+    T_shz = DenavitRow(0    , 0    , 0, -pi/2, Joint(sympy.Symbol('sh_z'),JointType.ROTATIONAL))
+    T_shy = DenavitRow(pi/2 , 0    , 0, pi/2,  Joint(sympy.Symbol('sh_y'),JointType.ROTATIONAL))
+    T_shx = DenavitRow(-pi/2, -ar  , 0, pi/2,  Joint(sympy.Symbol('sh_x'),JointType.ROTATIONAL))
+    T_elz = DenavitRow(0    , 0    , 0, -pi/2, Joint(sympy.Symbol('el_z'),JointType.ROTATIONAL))
+    T_elx = DenavitRow(0    , -fa  , 0, pi/2,  Joint(sympy.Symbol('el_x'),JointType.ROTATIONAL))
+    T_wrz = DenavitRow(pi/2 , 0    , 0, -pi/2, Joint(sympy.Symbol('wr_z'),JointType.ROTATIONAL))
+    T_wry = DenavitRow(0    , -palm, 0, 0,     Joint(sympy.Symbol('wr_y'),JointType.ROTATIONAL))
+    T_hdy = DenavitRow(0    , -fing, 0, 0,     Joint(sympy.Symbol('hd_y'),JointType.ROTATIONAL))
+
+    T_arm = DenavitDK((T_shz,T_shy,T_shx,T_elz,T_elx,T_wrz,T_wry,T_hdy),"humanArm")
+    T_arm.genURDF()
