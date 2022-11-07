@@ -7,7 +7,7 @@ from enum import Enum
 
 class Rotations:
     def __init__(self):
-        self.alpha  = sympy.Symbol('alpha')
+        self.alpha = sympy.Symbol('alpha')
         self.beta  = sympy.Symbol('beta')
         self.gamma = sympy.Symbol('gamma')
         self.theta = sympy.Symbol('theta')
@@ -47,16 +47,20 @@ class Rotations:
         return self.eulerToMatrixSequenceSym("xyz",x,y,z)
 
     def matrixToEulerXYZSym(self, matrix):
-        pos = matrix[0:3,3]
+        if matrix.shape[0] == 4:
+            pos = matrix[0:3,3]
         R = matrix[0:3,0:3]
         sy = sympy.sqrt(R[0,0]**2 +  R[1,0]**2)
         x = sympy.atan2(R[2,1] , R[2,2])
         y = sympy.atan2(-R[2,0], sy)
         z = sympy.atan2(R[1,0], R[0,0])
-        return sympy.Matrix([[pos[0]],[pos[1]],[pos[2]],[x],[y],[z]])
+        if matrix.shape[0] == 4:
+            return sympy.Matrix([[pos[0]],[pos[1]],[pos[2]],[x],[y],[z]])
+        return sympy.Matrix([[x],[y],[z]])
         
     def matrixToEulerXYZ(self, matrix):
-        pos = matrix[0:3,3]
+        if matrix.shape[0] == 4:
+            pos = matrix[0:3,3]
         R = matrix[0:3,0:3]
         sy = np.sqrt(R[0,0]**2 +  R[1,0]**2)
         if  sy > 1e-6 :
@@ -68,7 +72,9 @@ class Rotations:
             x = np.arctan2(-R[1,2], R[1,1])
             y = np.arctan2(-R[2,0], sy)
             z = 0
-        return np.transpose(np.array([[pos[0], pos[1], pos[2], x, y, z]]))
+        if matrix.shape[0] == 4:
+            return np.transpose(np.array([[pos[0], pos[1], pos[2], x, y, z]]))
+        return np.transpose(np.array([x, y, z]))
 
 class JointType(Enum):
     """
@@ -376,7 +382,7 @@ class DenavitDK:
 
     def _genURDFWorldLink(self,links:list) -> str:
         string =  '\t<!-- ******************* WORLD LINK ******************* -->\n'
-        string += '\t<link name="world_joint">\n'
+        string += '\t<link name="world">\n'
         string += '\t\t<origin xyz="0 0 0" rpy="0 0 0" />\n'
         string += '\t</link>\n'
         links.append('world')
@@ -397,7 +403,7 @@ class DenavitDK:
             if link > 1e-9 and dr.joint is not None: radius -= radius_delta
             mass = density*link*pi*radius**2
             name = f"L{linksNum}"
-            links.append(name)
+            links.append(name+"_joint")
             linksNum += 1
             if dr.joint is not None:
                 material_str = material.getNextMaterialStr()
@@ -475,27 +481,22 @@ class DenavitDK:
         prev_af = 0
         for i,dr in enumerate(self.denavitRows):
             th,d,a,af = dr.dhParams
+            eulerXYZ = Rotations().matrixToEulerXYZSym(sympy.rot_axis1(prev_af)*sympy.rot_axis3(th))
+            
             if dr.joint is None:
                 string += f'\t<joint name="{prev_dr.joint.name}_" type="fixed">\n'
-                string += f'\t\t<parent link="{links[i]}_joint" />\n'
-                string += f'\t\t<child link="{links[i+1]}_joint" />\n'
-                string += f'\t\t<origin xyz="{prev_a} 0 {prev_d}" rpy="{prev_af} 0 {th}" />\n'
             elif dr.joint.type == JointType.ROTATIONAL:
                 string += f'\t<joint name="{dr.joint.name}" type="revolute">\n'
                 string += f'\t\t<limit lower="{dr.joint.lower_limit}" upper="{dr.joint.upper_limit}" effort="12" velocity="2.443"/>\n'
-                string += f'\t\t<parent link="{links[i]}_joint" />\n'
-                string += f'\t\t<child link="{links[i+1]}_joint" />\n'
-                string += f'\t\t<origin xyz="{prev_a} 0 {prev_d}" rpy="{prev_af} 0 {th}" />\n'
                 string +=  '\t\t<axis xyz="0 0 1" />\n'
             else:
                 string += f'\t<joint name="{dr.joint.name}" type="prismatic">\n'
                 string += f'\t\t<limit lower="{dr.joint.lower_limit}" upper="{dr.joint.upper_limit}" effort="12" velocity="2.443"/>\n'
-                string += f'\t\t<parent link="{links[i]}_joint" />\n'
-                string += f'\t\t<child link="{links[i+1]}_joint" />\n'
-                string += f'\t\t<origin xyz="{prev_a} 0 {prev_d}" rpy="{prev_af} 0 {th}" />\n'
-                string +=  '\t\t<axis xyz="0 0 1" />\n'                
-
-            string +=  '\t</joint>\n'
+                string +=  '\t\t<axis xyz="0 0 1" />\n'
+            string += f'\t\t<parent link="{links[i]}" />\n'
+            string += f'\t\t<child link="{links[i+1]}" />\n'
+            string += f'\t\t<origin xyz="{prev_a} 0 {prev_d}" rpy="{eulerXYZ[0]} {eulerXYZ[1]} {eulerXYZ[2]}" />\n'
+            string += '\t</joint>\n'
             prev_dr = dr
             prev_d = d
             prev_a = a
@@ -797,14 +798,29 @@ if __name__ == "__main__" :
     palm = 1
     fing = 1.2
 
-    T_shz = DenavitRow(0    , 0    , 0, -pi/2, Joint(sympy.Symbol('sh_z'),JointType.ROTATIONAL))
-    T_shy = DenavitRow(pi/2 , 0    , 0, pi/2,  Joint(sympy.Symbol('sh_y'),JointType.ROTATIONAL))
-    T_shx = DenavitRow(-pi/2, -ar  , 0, pi/2,  Joint(sympy.Symbol('sh_x'),JointType.ROTATIONAL))
-    T_elz = DenavitRow(0    , 0    , 0, -pi/2, Joint(sympy.Symbol('el_z'),JointType.ROTATIONAL))
-    T_elx = DenavitRow(0    , -fa  , 0, pi/2,  Joint(sympy.Symbol('el_x'),JointType.ROTATIONAL))
-    T_wrz = DenavitRow(pi/2 , 0    , 0, -pi/2, Joint(sympy.Symbol('wr_z'),JointType.ROTATIONAL))
-    T_wry = DenavitRow(0    , -palm, 0, 0,     Joint(sympy.Symbol('wr_y'),JointType.ROTATIONAL))
-    T_hdy = DenavitRow(0    , -fing, 0, 0,     Joint(sympy.Symbol('hd_y'),JointType.ROTATIONAL))
+    # T_shz = DenavitRow(0    , 0    , 0, -pi/2, Joint(sympy.Symbol('sh_z'),JointType.ROTATIONAL))
+    # T_shy = DenavitRow(pi/2 , 0    , 0, pi/2,  Joint(sympy.Symbol('sh_y'),JointType.ROTATIONAL))
+    # T_shx = DenavitRow(-pi/2, -ar  , 0, pi/2,  Joint(sympy.Symbol('sh_x'),JointType.ROTATIONAL))
+    # T_elz = DenavitRow(0    , 0    , 0, -pi/2, Joint(sympy.Symbol('el_z'),JointType.ROTATIONAL))
+    # T_elx = DenavitRow(0    , -fa  , 0, pi/2,  Joint(sympy.Symbol('el_x'),JointType.ROTATIONAL))
+    # T_wrz = DenavitRow(pi/2 , 0    , 0, -pi/2, Joint(sympy.Symbol('wr_z'),JointType.ROTATIONAL))
+    # T_wry = DenavitRow(0    , -palm, 0, 0,     Joint(sympy.Symbol('wr_y'),JointType.ROTATIONAL))
+    # T_hdy = DenavitRow(0    , -fing, 0, 0,     Joint(sympy.Symbol('hd_y'),JointType.ROTATIONAL))
 
-    T_arm = DenavitDK((T_shz,T_shy,T_shx,T_elz,T_elx,T_wrz,T_wry,T_hdy),"humanArm")
-    T_arm.genURDF()
+    T_shz = DenavitRow(0    , 0    , 0   , -pi/2, Joint(sympy.Symbol('sh_z'),JointType.ROTATIONAL))
+    T_shy = DenavitRow(pi/2 , 0    , 0   , pi/2,  Joint(sympy.Symbol('sh_y'),JointType.ROTATIONAL))
+    T_shx = DenavitRow(-pi/2, -ar  , 0   , pi/2,  Joint(sympy.Symbol('sh_x'),JointType.ROTATIONAL))
+    T_elz = DenavitRow(0    , 0    , 0   , -pi/2, Joint(sympy.Symbol('el_z'),JointType.ROTATIONAL))
+    T_elx = DenavitRow(0    , -fa  , 0   , pi/2,  Joint(sympy.Symbol('el_x'),JointType.ROTATIONAL))
+    T_wrz = DenavitRow(pi/2 , 0    , 0   , -pi/2, Joint(sympy.Symbol('wr_z'),JointType.ROTATIONAL))
+    T_wry = DenavitRow(0    , 0    ,-palm, 0,     Joint(sympy.Symbol('wr_y'),JointType.ROTATIONAL))
+    T_hdy = DenavitRow(0    , 0    ,-fing, 0,     Joint(sympy.Symbol('hd_y'),JointType.ROTATIONAL))
+
+    # T_arm = DenavitDK((T_shz,T_shy,T_shx,T_elz,T_elx,T_wrz,T_wry,T_hdy),"humanArm8")
+    # T_arm.genURDF()
+
+    thumb = 0.8
+    T_thb = DenavitRow(0, 0, -thumb, 0)
+
+    T_arm5 = DenavitDK((T_shz,T_shy,T_shx,T_elz,T_elx,T_thb),"humanArm5")
+    T_arm5.genURDF()
