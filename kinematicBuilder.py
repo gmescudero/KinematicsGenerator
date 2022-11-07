@@ -793,31 +793,22 @@ class Decoupled6DOF:
         return [sympy.Symbol(n) for n in names]
 
 if __name__ == "__main__" :
-    ar = 10
-    fa = 5
+    arm  = 10
+    farm = 5
     palm = 1
     fing = 1.2
 
-    # T_shz = DenavitRow(0    , 0    , 0, -pi/2, Joint(sympy.Symbol('sh_z'),JointType.ROTATIONAL))
-    # T_shy = DenavitRow(pi/2 , 0    , 0, pi/2,  Joint(sympy.Symbol('sh_y'),JointType.ROTATIONAL))
-    # T_shx = DenavitRow(-pi/2, -ar  , 0, pi/2,  Joint(sympy.Symbol('sh_x'),JointType.ROTATIONAL))
-    # T_elz = DenavitRow(0    , 0    , 0, -pi/2, Joint(sympy.Symbol('el_z'),JointType.ROTATIONAL))
-    # T_elx = DenavitRow(0    , -fa  , 0, pi/2,  Joint(sympy.Symbol('el_x'),JointType.ROTATIONAL))
-    # T_wrz = DenavitRow(pi/2 , 0    , 0, -pi/2, Joint(sympy.Symbol('wr_z'),JointType.ROTATIONAL))
-    # T_wry = DenavitRow(0    , -palm, 0, 0,     Joint(sympy.Symbol('wr_y'),JointType.ROTATIONAL))
-    # T_hdy = DenavitRow(0    , -fing, 0, 0,     Joint(sympy.Symbol('hd_y'),JointType.ROTATIONAL))
+    T_shz = DenavitRow(0    , 0    , 0    , -pi/2, Joint(sympy.Symbol('sh_z'),JointType.ROTATIONAL,upper_limit=165*pi/180, lower_limit=-pi/2))
+    T_shy = DenavitRow(pi/2 , 0    , 0    , pi/2,  Joint(sympy.Symbol('sh_y'),JointType.ROTATIONAL,upper_limit=pi/2,       lower_limit=-pi/2))
+    T_shx = DenavitRow(-pi/2, -arm , 0    , pi/2,  Joint(sympy.Symbol('sh_x'),JointType.ROTATIONAL,upper_limit=pi/2,       lower_limit=-pi/2))
+    T_elz = DenavitRow(0    , 0    , 0    , -pi/2, Joint(sympy.Symbol('el_z'),JointType.ROTATIONAL,upper_limit=165*pi/180, lower_limit=0))
+    T_elx = DenavitRow(0    , -farm, 0    , pi/2,  Joint(sympy.Symbol('el_x'),JointType.ROTATIONAL,upper_limit=pi/6,       lower_limit=-110*pi/180))
+    T_wrz = DenavitRow(pi/2 , 0    , 0    , -pi/2, Joint(sympy.Symbol('wr_z'),JointType.ROTATIONAL,upper_limit=10*pi/180,  lower_limit=-pi/6))
+    T_wry = DenavitRow(0    , 0    , -palm, 0,     Joint(sympy.Symbol('wr_y'),JointType.ROTATIONAL,upper_limit=pi/3,       lower_limit=-pi/2))
+    T_hdy = DenavitRow(0    , 0    , -fing, 0,     Joint(sympy.Symbol('hd_y'),JointType.ROTATIONAL,upper_limit=5*pi/180,   lower_limit=-pi/2))
 
-    T_shz = DenavitRow(0    , 0    , 0   , -pi/2, Joint(sympy.Symbol('sh_z'),JointType.ROTATIONAL))
-    T_shy = DenavitRow(pi/2 , 0    , 0   , pi/2,  Joint(sympy.Symbol('sh_y'),JointType.ROTATIONAL))
-    T_shx = DenavitRow(-pi/2, -ar  , 0   , pi/2,  Joint(sympy.Symbol('sh_x'),JointType.ROTATIONAL))
-    T_elz = DenavitRow(0    , 0    , 0   , -pi/2, Joint(sympy.Symbol('el_z'),JointType.ROTATIONAL))
-    T_elx = DenavitRow(0    , -fa  , 0   , pi/2,  Joint(sympy.Symbol('el_x'),JointType.ROTATIONAL))
-    T_wrz = DenavitRow(pi/2 , 0    , 0   , -pi/2, Joint(sympy.Symbol('wr_z'),JointType.ROTATIONAL))
-    T_wry = DenavitRow(0    , 0    ,-palm, 0,     Joint(sympy.Symbol('wr_y'),JointType.ROTATIONAL))
-    T_hdy = DenavitRow(0    , 0    ,-fing, 0,     Joint(sympy.Symbol('hd_y'),JointType.ROTATIONAL))
-
-    # T_arm = DenavitDK((T_shz,T_shy,T_shx,T_elz,T_elx,T_wrz,T_wry,T_hdy),"humanArm8")
-    # T_arm.genURDF()
+    T_arm = DenavitDK((T_shz,T_shy,T_shx,T_elz,T_elx,T_wrz,T_wry,T_hdy),"humanArm8")
+    T_arm.genURDF()
 
     thumb = 0.8
     T_thb = DenavitRow(0, 0, -thumb, 0)
