@@ -7,7 +7,7 @@ from enum import Enum
 
 class Rotations:
     def __init__(self):
-        self.alpha  = sympy.Symbol('alpha')
+        self.alpha = sympy.Symbol('alpha')
         self.beta  = sympy.Symbol('beta')
         self.gamma = sympy.Symbol('gamma')
         self.theta = sympy.Symbol('theta')
@@ -32,11 +32,11 @@ class Rotations:
         rotSymbols = [a,b,c]
         rotM = sympy.eye(3)
         for axis,symbol in zip(list(sequence),rotSymbols):
-            if axis is "x":
+            if   axis == "x":
                 rotM = rotM*self.xRotM.subs(self.theta,symbol)
-            elif axis is "y":
+            elif axis == "y":
                 rotM = rotM*self.yRotM.subs(self.theta,symbol)
-            elif axis is "z":
+            elif axis == "z":
                 rotM = rotM*self.zRotM.subs(self.theta,symbol)
         return rotM
     
@@ -47,16 +47,20 @@ class Rotations:
         return self.eulerToMatrixSequenceSym("xyz",x,y,z)
 
     def matrixToEulerXYZSym(self, matrix):
-        pos = matrix[0:3,3]
+        if matrix.shape[0] == 4:
+            pos = matrix[0:3,3]
         R = matrix[0:3,0:3]
         sy = sympy.sqrt(R[0,0]**2 +  R[1,0]**2)
         x = sympy.atan2(R[2,1] , R[2,2])
         y = sympy.atan2(-R[2,0], sy)
         z = sympy.atan2(R[1,0], R[0,0])
-        return sympy.Matrix([[pos[0]],[pos[1]],[pos[2]],[x],[y],[z]])
+        if matrix.shape[0] == 4:
+            return sympy.Matrix([[pos[0]],[pos[1]],[pos[2]],[x],[y],[z]])
+        return sympy.Matrix([[x],[y],[z]])
         
     def matrixToEulerXYZ(self, matrix):
-        pos = matrix[0:3,3]
+        if matrix.shape[0] == 4:
+            pos = matrix[0:3,3]
         R = matrix[0:3,0:3]
         sy = np.sqrt(R[0,0]**2 +  R[1,0]**2)
         if  sy > 1e-6 :
@@ -68,7 +72,9 @@ class Rotations:
             x = np.arctan2(-R[1,2], R[1,1])
             y = np.arctan2(-R[2,0], sy)
             z = 0
-        return np.transpose(np.array([[pos[0], pos[1], pos[2], x, y, z]]))
+        if matrix.shape[0] == 4:
+            return np.transpose(np.array([[pos[0], pos[1], pos[2], x, y, z]]))
+        return np.transpose(np.array([x, y, z]))
 
 class JointType(Enum):
     """
@@ -407,12 +413,12 @@ class DenavitDK:
         radius = np.linalg.norm(self.zeroPose[0:3])/70
         radius_delta = radius/(len(self.denavitRows)+1)
         for dr in self.denavitRows:
-            th,d,a,af = dr.dhParams
+            _,d,a,_ = dr.dhParams
             link = np.sqrt(d**2 + a**2)
             if link > 1e-9 and dr.joint is not None: radius -= radius_delta
             mass = density*link*pi*radius**2
             name = f"L{linksNum}"
-            links.append(name)
+            links.append(name+"_joint")
             linksNum += 1
             if dr.joint is not None:
                 material_str = material.getNextMaterialStr()
@@ -465,8 +471,14 @@ class DenavitDK:
             # Join the two visuals
             if   1e-6 > np.abs(link):
                 angle = 0
-            elif 1e-6 > np.abs(d):
+            elif 1e-6 > np.abs(d) and 0 < a:
                 angle = pi/2
+            elif 1e-6 > d and 0 > a:
+                angle = -pi/2
+            elif 1e-6 > a and 0 < d:
+                angle = 0
+            elif 1e-6 > a and 0 > d:
+                angle = pi
             else:
                 angle = np.arctan2(a/link,d/link)
             string += f'\t<joint name="{name}_joint" type="fixed">\n'
@@ -486,27 +498,22 @@ class DenavitDK:
         prev_af = 0
         for i,dr in enumerate(self.denavitRows):
             th,d,a,af = dr.dhParams
+            eulerXYZ = Rotations().matrixToEulerXYZSym(sympy.rot_axis1(prev_af)*sympy.rot_axis3(th))
+            
             if dr.joint is None:
                 string += f'\t<joint name="{prev_dr.joint.name}_" type="fixed">\n'
-                string += f'\t\t<parent link="{links[i]}_joint" />\n'
-                string += f'\t\t<child link="{links[i+1]}_joint" />\n'
-                string += f'\t\t<origin xyz="{prev_a} 0 {prev_d}" rpy="{prev_af} 0 {th}" />\n'
             elif dr.joint.type == JointType.ROTATIONAL:
                 string += f'\t<joint name="{dr.joint.name}" type="revolute">\n'
                 string += f'\t\t<limit lower="{dr.joint.lower_limit}" upper="{dr.joint.upper_limit}" effort="12" velocity="2.443"/>\n'
-                string += f'\t\t<parent link="{links[i]}_joint" />\n'
-                string += f'\t\t<child link="{links[i+1]}_joint" />\n'
-                string += f'\t\t<origin xyz="{prev_a} 0 {prev_d}" rpy="{prev_af} 0 {th}" />\n'
                 string +=  '\t\t<axis xyz="0 0 1" />\n'
             else:
                 string += f'\t<joint name="{dr.joint.name}" type="prismatic">\n'
                 string += f'\t\t<limit lower="{dr.joint.lower_limit}" upper="{dr.joint.upper_limit}" effort="12" velocity="2.443"/>\n'
-                string += f'\t\t<parent link="{links[i]}_joint" />\n'
-                string += f'\t\t<child link="{links[i+1]}_joint" />\n'
-                string += f'\t\t<origin xyz="{prev_a} 0 {prev_d}" rpy="{prev_af} 0 {th}" />\n'
-                string +=  '\t\t<axis xyz="0 0 1" />\n'                
-
-            string +=  '\t</joint>\n'
+                string +=  '\t\t<axis xyz="0 0 1" />\n'
+            string += f'\t\t<parent link="{links[i]}" />\n'
+            string += f'\t\t<child link="{links[i+1]}" />\n'
+            string += f'\t\t<origin xyz="{prev_a} 0 {prev_d}" rpy="{eulerXYZ[0]} {eulerXYZ[1]} {eulerXYZ[2]}" />\n'
+            string += '\t</joint>\n'
             prev_dr = dr
             prev_d = d
             prev_a = a
@@ -696,7 +703,7 @@ class SphericalWrist:
 
     def inverseKinSymbols(self):
         rotM = Rotations().eulerToMatrixSequenceSym(self.sequence,self.yaw,self.pitch,self.roll)
-        if self.sequence is "xyx":
+        if self.sequence == "xyx":
             q1_dk = sympy.atan2(-rotM[1,0], rotM[2,0])
             q2_dk = sympy.acos(  rotM[0,0])
             q3_dk = sympy.atan2( rotM[0,1], rotM[0,2])
@@ -803,11 +810,25 @@ class Decoupled6DOF:
         return [sympy.Symbol(n) for n in names]
 
 if __name__ == "__main__" :
-    T1 = DenavitRow(pi/2,   0, 0, pi/2,  Joint(sympy.Symbol('q_1'),JointType.PRISMATIC))
-    T2 = DenavitRow(pi/2,   0, 0, -pi/2, Joint(sympy.Symbol('q_2'),JointType.PRISMATIC))
-    T3 = DenavitRow(0,      0, 0, 0,     Joint(sympy.Symbol('q_3'),JointType.PRISMATIC))
+    arm  = 10
+    farm = 5
+    palm = 1
+    fing = 1.2
 
-    T_cartesian = DenavitDK((T1,T2,T3),"Cartesian")
-    print(T_cartesian.directTransformSym)
-    T_cartesian.genCCode()
-    T_cartesian.genURDF()
+    T_shz = DenavitRow(0    , 0    , 0    , -pi/2, Joint(sympy.Symbol('sh_z'),JointType.ROTATIONAL,upper_limit=165*pi/180, lower_limit=-pi/2))
+    T_shy = DenavitRow(pi/2 , 0    , 0    , pi/2,  Joint(sympy.Symbol('sh_y'),JointType.ROTATIONAL,upper_limit=pi/2,       lower_limit=-pi/2))
+    T_shx = DenavitRow(-pi/2, -arm , 0    , pi/2,  Joint(sympy.Symbol('sh_x'),JointType.ROTATIONAL,upper_limit=pi/2,       lower_limit=-pi/2))
+    T_elz = DenavitRow(0    , 0    , 0    , -pi/2, Joint(sympy.Symbol('el_z'),JointType.ROTATIONAL,upper_limit=165*pi/180, lower_limit=0))
+    T_elx = DenavitRow(0    , -farm, 0    , pi/2,  Joint(sympy.Symbol('el_x'),JointType.ROTATIONAL,upper_limit=pi/6,       lower_limit=-110*pi/180))
+    T_wrz = DenavitRow(pi/2 , 0    , 0    , -pi/2, Joint(sympy.Symbol('wr_z'),JointType.ROTATIONAL,upper_limit=10*pi/180,  lower_limit=-pi/6))
+    T_wry = DenavitRow(0    , 0    , -palm, 0,     Joint(sympy.Symbol('wr_y'),JointType.ROTATIONAL,upper_limit=pi/3,       lower_limit=-pi/2))
+    T_hdy = DenavitRow(0    , 0    , -fing, 0,     Joint(sympy.Symbol('hd_y'),JointType.ROTATIONAL,upper_limit=5*pi/180,   lower_limit=-pi/2))
+
+    T_arm = DenavitDK((T_shz,T_shy,T_shx,T_elz,T_elx,T_wrz,T_wry,T_hdy),"humanArm8")
+    T_arm.genURDF()
+
+    thumb = 0.8
+    T_thb = DenavitRow(0, 0, -thumb, 0)
+
+    T_arm5 = DenavitDK((T_shz,T_shy,T_shx,T_elz,T_elx,T_thb),"humanArm5")
+    T_arm5.genURDF()
