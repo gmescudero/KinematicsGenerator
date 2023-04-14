@@ -241,6 +241,8 @@ class DenavitDK:
         self.jacobian = self._jacobian()
         self.jacobianLambda = sympy.lambdify(self.jointsSym,self.jacobian)
         self.jacobianPosLambda = sympy.lambdify(self.jointsSym,self.jacobian[0:3,0:self.jointsNum])
+        # Store zero position
+        self.zeroPose = self.eval(np.zeros(self.jointsNum))
 
     def eval(self, jointVal:list):
         return self.directLambdaTransform(*jointVal)
@@ -376,25 +378,37 @@ class DenavitDK:
 
     def _genURDFWorldLink(self,links:list) -> str:
         string =  '\t<!-- ******************* WORLD LINK ******************* -->\n'
-        string += '\t<link name="world_joint">\n'
-        string += '\t\t<origin xyz="0 0 0" rpy="0 0 0" />\n'
+        # Add world and base links
+        string +=  '\t<link name="world"/>\n'
+        string +=  '\t<link name="base_joint">\n'
+        string +=  '\t\t<origin xyz="0 0 0" rpy="0 0 0" />\n'
+        string +=  '\t\t<visual>\n'
+        string +=  '\t\t\t<geometry>\n'
+        radius = np.linalg.norm(self.zeroPose[0:3])/15
+        string += f'\t\t\t\t<cylinder radius=\"{radius*2}\" length=\"{radius*0.5}\" />\n'
+        string +=  '\t\t\t</geometry>\n'
+        string +=  '\t\t</visual>\n'
         string += '\t</link>\n'
-        links.append('world')
+        links.append('base')        
+        # Add base joint fixed to world
+        string +=  '\t<joint name="joint_world" type="fixed">\n'
+        string +=  '\t\t<parent link="world"/>\n'
+        string += f'\t\t<child link="{links[0]}_joint"/>\n'
+        string +=  '\t\t<origin rpy="0 0 0" xyz="0 0 0"/>\n'
+        string +=  '\t</joint>\n'
         return string
 
     def _genURDFLinks(self,links:list) -> str:
         string = ''
         density = 1
-        transM = np.eye(4)
         linksNum = 1
         material = URDFMaterials()
         material_str = material.getCurrentMaterialStr()
-        zeroPose = self.eval(np.zeros(self.jointsNum))
-        radius = np.linalg.norm(zeroPose[0:3])/70
+        radius = np.linalg.norm(self.zeroPose[0:3])/70
         radius_delta = radius/(len(self.denavitRows)+1)
         for dr in self.denavitRows:
             th,d,a,af = dr.dhParams
-            link = np.sqrt(dr.dhParams[1]**2 + dr.dhParams[2]**2)
+            link = np.sqrt(d**2 + a**2)
             if link > 1e-9 and dr.joint is not None: radius -= radius_delta
             mass = density*link*pi*radius**2
             name = f"L{linksNum}"
@@ -431,9 +445,10 @@ class DenavitDK:
             string +=  '\t\t</visual>\n'
             # Collision section
             string +=  '\t\t<collision>\n'
-            string += f'\t\t\t<origin xyz="{link/2} 0 {link}" rpy="0 0 0" />\n'
+            string += f'\t\t\t<origin xyz="0 0 {link/2}" rpy="0 0 0" />\n'
             string +=  '\t\t\t<geometry>\n'
-            string += f'\t\t\t\t<cylinder radius=\"{radius}\" length=\"{link}\" />\n'
+            # make collision length a little shorter to avoid self colliding
+            string += f'\t\t\t\t<cylinder radius=\"{radius}\" length=\"{link*0.85}\" />\n'
             string +=  '\t\t\t</geometry>\n'
             string +=  '\t\t</collision>\n'
             # Inertial section
@@ -448,9 +463,9 @@ class DenavitDK:
             string +=  '\t</link>\n'
 
             # Join the two visuals
-            if   1e-6 > link:
+            if   1e-6 > np.abs(link):
                 angle = 0
-            elif 1e-6 > d:
+            elif 1e-6 > np.abs(d):
                 angle = pi/2
             else:
                 angle = np.arctan2(a/link,d/link)
@@ -465,6 +480,7 @@ class DenavitDK:
 
     def _genURDFJoints(self,links:list) -> str:
         string = '\t<!-- ********************* JOINTS ********************* -->\n'
+        # Add joints from Denavit Hartenberg table
         prev_d = 0
         prev_a = 0
         prev_af = 0
@@ -793,3 +809,5 @@ if __name__ == "__main__" :
 
     T_cartesian = DenavitDK((T1,T2,T3),"Cartesian")
     print(T_cartesian.directTransformSym)
+    T_cartesian.genCCode()
+    T_cartesian.genURDF()
