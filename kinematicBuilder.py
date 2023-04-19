@@ -247,7 +247,9 @@ class DenavitDK:
         # Calculate jacobian
         self.jacobian = self._jacobian()
         self.jacobianLambda = sympy.lambdify(self.jointsSym,self.jacobian)
-        self.jacobianPosLambda = sympy.lambdify(self.jointsSym,self.jacobian[0:3,0:self.jointsNum])
+        # Calculate position only jacobian
+        self.jacobianPos = self.jacobian[0:3,:]
+        self.jacobianPosLambda = sympy.lambdify(self.jointsSym,self.jacobianPos)
         # Store zero position
         self.zeroPose = self.eval(np.zeros(self.jointsNum))
 
@@ -291,14 +293,13 @@ class DenavitDK:
     # def _jacobianPinv(self):
     #     sympy.singular_value_decomposition()
 
-    def inversePositionEval(self, init_joint_pose, end_pose):
-        iterations = 1000
+    def inversePositionEval(self, init_joint_pose, end_pose, iterations=1000, tolerance=1e-6):
         joints = np.transpose(np.array([init_joint_pose]))
         endPoseEuler= np.transpose(np.array([end_pose]))
         currentPoseEuler = Rotations().matrixToEulerXYZ(self.eval(init_joint_pose))[0:3]
         deltaPoseEuler = endPoseEuler - currentPoseEuler
         error = np.linalg.norm(deltaPoseEuler)**2
-        while error > 1e-4 and iterations > 0:
+        while error > tolerance and iterations > 0:
             iterations -= 1
 
             currentJacobian = self.jacobianPosLambda(*joints.ravel())
@@ -315,17 +316,16 @@ class DenavitDK:
         print(f"Solution with error {error} in {1000-iterations} iterations")
         return joints.ravel()
 
-    def inverseEval(self, init_joint_pose, end_pose):
+    def inverseEval(self, init_joint_pose, end_pose, iterations=1000, tolerance=1e-5):
         # Adjust position
         joints = self.inversePositionEval(init_joint_pose, end_pose[0:3,3])
         # Adjust orientation
-        iterations = 1000
         joints = np.transpose(np.array([joints]))
         endPoseEuler = Rotations().matrixToEulerXYZ(end_pose)
         currentPoseEuler = Rotations().matrixToEulerXYZ(self.eval(init_joint_pose))
         deltaPoseEuler = endPoseEuler - currentPoseEuler
         error = np.linalg.norm(deltaPoseEuler)**2
-        while error > 1e-4 and iterations > 0:
+        while error > tolerance and iterations > 0:
             iterations -= 1
             
             currentJacobian = self.jacobianLambda(*joints.ravel())
@@ -348,18 +348,15 @@ class DenavitDK:
         if filename is None:
             filename = self.name
 
-        if simplify:
-            symDK = sympy.simplify(self.directTransformSym)
-            symJ = sympy.simplify(self.jacobian)
-        else:
-            symDK = self.directTransformSym
-            symJ = self.jacobian
+        fileExpressions = [
+            ('directKin',  sympy.simplify(self.directTransformSym) if simplify else self.directTransformSym ),
+            ('jacobianPos',sympy.simplify(self.jacobianPos)        if simplify else self.jacobianPos ),
+            ('jacobian',   sympy.simplify(self.jacobian)           if simplify else self.jacobian ),
+        ]
 
-        [(c_name, c_code_dk), _] = codegen(('directKin', symDK), "C99", filename, header=False, empty=False)
-        [(c_name, c_code_j), _]  = codegen(('jacobian',   symJ), "C99", filename, header=False, empty=False)
+        [(c_name, c_code), _] = codegen(fileExpressions, "C99", filename, header=False, empty=False)
         with open(c_name,'w+') as c_file:
-            c_file.write(c_code_dk)
-            c_file.write(c_code_j)
+            c_file.write(c_code)
     
     def genURDF(self, filename:str=None):
         if filename is None:
