@@ -233,7 +233,8 @@ class DenavitDK:
                 self.jointsSym.append(T.joint.symbol)
             self.directTransformSym = self.directTransformSym*T.TransformSym
         # Clean almost zero values
-        self.directTransformSym = sympy.nsimplify(self.directTransformSym,tolerance=1e-15,rational=True)
+        self.directTransformSym = sympy.nsimplify(self.directTransformSym,tolerance=1e-12,rational=True)
+        self.directTransformSym = self.directTransformSym.evalf()
         # self.directTransformSym = sympy.simplify(self.directTransformSym)
         # Set joints number
         self.jointsNum = len(self.jointsSym)
@@ -395,11 +396,11 @@ class DenavitDK:
         string +=  '\t\t\t</geometry>\n'
         string +=  '\t\t</visual>\n'
         string += '\t</link>\n'
-        links.append('base')        
+        links.append('base_joint')
         # Add base joint fixed to world
         string +=  '\t<joint name="joint_world" type="fixed">\n'
         string +=  '\t\t<parent link="world"/>\n'
-        string += f'\t\t<child link="{links[0]}_joint"/>\n'
+        string += f'\t\t<child link="{links[0]}"/>\n'
         string +=  '\t\t<origin rpy="0 0 0" xyz="0 0 0"/>\n'
         string +=  '\t</joint>\n'
         return string
@@ -431,7 +432,7 @@ class DenavitDK:
                 string += f'\t\t\t<origin xyz="0 0 0" rpy="0 0 0" />\n'
                 string +=  '\t\t\t<geometry>\n'
                 if dr.joint.type is JointType.PRISMATIC:
-                    string += f'\t\t\t\t<box size="{radius*1.5} {radius*1.5} {radius*8}"/>\n'
+                    string += f'\t\t\t\t<box size="{radius*3.0} {radius*3.0} {radius*8}"/>\n'
                 else:
                     string += f'\t\t\t\t<cylinder radius=\"{radius*2}\" length=\"{radius*8}\" />\n'
                 string +=  '\t\t\t</geometry>\n'
@@ -473,7 +474,7 @@ class DenavitDK:
                 angle = 0
             elif 1e-6 > np.abs(d) and 0 < a:
                 angle = pi/2
-            elif 1e-6 > d and 0 > a:
+            elif 1e-6 > np.abs(d) and 0 > a:
                 angle = -pi/2
             elif 1e-6 > a and 0 < d:
                 angle = 0
@@ -512,7 +513,7 @@ class DenavitDK:
                 string +=  '\t\t<axis xyz="0 0 1" />\n'
             string += f'\t\t<parent link="{links[i]}" />\n'
             string += f'\t\t<child link="{links[i+1]}" />\n'
-            string += f'\t\t<origin xyz="{prev_a} 0 {prev_d}" rpy="{eulerXYZ[0]} {eulerXYZ[1]} {eulerXYZ[2]}" />\n'
+            string += f'\t\t<origin xyz="{prev_a} 0 {prev_d}" rpy="{eulerXYZ[0].evalf()} {eulerXYZ[1].evalf()} {eulerXYZ[2].evalf()}" />\n'
             string += '\t</joint>\n'
             prev_dr = dr
             prev_d = d
@@ -832,3 +833,4 @@ if __name__ == "__main__" :
 
     T_arm5 = DenavitDK((T_shz,T_shy,T_shx,T_elz,T_elx,T_thb),"humanArm5")
     T_arm5.genURDF()
+    
