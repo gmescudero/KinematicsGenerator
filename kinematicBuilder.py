@@ -5,12 +5,19 @@ from sympy.abc import x,y,z
 from dataclasses import dataclass
 from enum import Enum
 
+class OrientationType(Enum):
+    NONE = -1
+    MATRIX = 0
+    EULER = 1
+    QUATERNION = 2
+
 class Rotations:
     def __init__(self):
         self.alpha = sympy.Symbol('alpha')
         self.beta  = sympy.Symbol('beta')
         self.gamma = sympy.Symbol('gamma')
         self.theta = sympy.Symbol('theta')
+        # Nominal rotations
         self.zRotM = sympy.Matrix([
             [sympy.cos(self.theta),-sympy.sin(self.theta), 0],
             [sympy.sin(self.theta), sympy.cos(self.theta), 0],
@@ -26,6 +33,19 @@ class Rotations:
             [0, sympy.cos(self.theta),-sympy.sin(self.theta)],
             [0, sympy.sin(self.theta), sympy.cos(self.theta)]
         ])
+        # Rodriges formula
+        self.p = sympy.Matrix([sympy.Symbol('p_x'),sympy.Symbol('p_y'),sympy.Symbol('p_z'),])
+        self.k = sympy.Matrix([sympy.Symbol('k_x'),sympy.Symbol('k_y'),sympy.Symbol('k_z'),])
+        skewK = sympy.Matrix([
+            [ 0,         self.k[2], self.k[1]],
+            [ self.k[2], 0,        -self.k[0]],
+            [-self.k[1], self.k[0], 0]
+        ])
+        self.rodriges = sympy.eye(3)*sympy.cos(self.alpha) + (1-sympy.cos(self.alpha))*(self.k*self.k.T) + sympy.sin(self.alpha)*skewK
+        self.screwMatrix = sympy.Matrix([
+            [self.rodriges,     (sympy.eye(3)-self.rodriges)*self.p],
+            [sympy.zeros(1,3),  sympy.eye(1)                       ]
+        ])
     
     def eulerToMatrixSequenceSym(self,sequence:str, a=sympy.abc.a,b=sympy.abc.b,c=sympy.abc.c):
         if len(sequence) != 3: return None
@@ -40,6 +60,10 @@ class Rotations:
                 rotM = rotM*self.zRotM.subs(self.theta,symbol)
         return rotM
     
+    def eulerToMatrixSequence(self,sequence:str, a,b,c):
+        sym = self.eulerToMatrixSequenceSym(sequence,a,b,c)
+        return np.array(sym.evalf())
+
     def zyxToMatrixSym(self,z,y,x):
         return self.eulerToMatrixSequenceSym("zyx",z,y,x)
     
@@ -119,6 +143,13 @@ class Denavit:
             [0,     sinA,       cosA,       self.d      ],
             [0,     0,          0,          1           ]
         ])
+        self.position = sympy.Matrix([self.a*cosT, self.a*sinT, self.d])
+
+        cosT2 = sympy.cos(self.theta/2)
+        sinT2 = sympy.sin(self.theta/2)
+        cosA2 = sympy.cos(self.alfa/2)
+        sinA2 = sympy.sin(self.alfa/2)
+        self.quat = sympy.Quaternion(cosT2,0,0,sinT2)*sympy.Quaternion(cosA2,sinA2,0,0)
 
 class DenavitRow(Denavit):
     """
@@ -223,7 +254,7 @@ class DenavitDK:
     """
     Robot definiton from Denavit Hartenberg Table
     """
-    def __init__(self,denavitRows, robotName:str = None) -> None:
+    def __init__(self,denavitRows, robotName:str = None, jacobianOrientation:OrientationType = OrientationType.MATRIX) -> None:
         self.denavitRows = denavitRows
         self.directTransformSym = sympy.Matrix(np.eye(4))
         self.jointsSym = []
@@ -232,8 +263,9 @@ class DenavitDK:
             if T.joint is not None:
                 self.jointsSym.append(T.joint.symbol)
             self.directTransformSym = self.directTransformSym*T.TransformSym
-        # Clean almost zero values
-        self.directTransformSym = sympy.nsimplify(self.directTransformSym,tolerance=1e-12,rational=True)
+            # Clean almost zero values
+            self.directTransformSym = sympy.nsimplify(self.directTransformSym,tolerance=1e-12,rational=True)
+        # Operate fractions
         self.directTransformSym = self.directTransformSym.evalf()
         # self.directTransformSym = sympy.simplify(self.directTransformSym)
         # Set joints number
@@ -244,8 +276,10 @@ class DenavitDK:
         self.jointsSym = sympy.Matrix([q for q in self.jointsSym])
         # Set lambda for direct transform
         self.directLambdaTransform = sympy.lambdify(self.jointsSym,self.directTransformSym)
+        # Set the jacobian orientation
+        self.jacobianOriType = jacobianOrientation
         # Calculate jacobian
-        self.jacobian = self._jacobian()
+        self.jacobian = self._jacobian(jacobianOrientation)
         self.jacobianLambda = sympy.lambdify(self.jointsSym,self.jacobian)
         # Calculate position only jacobian
         self.jacobianPos = self.jacobian[0:3,:]
@@ -262,86 +296,108 @@ class DenavitDK:
     def getTranslationSym(self):
         return self.directTransformSym[0:3,3]
     
-    def _jacobian(self):
-        eulerTransofrm = Rotations().matrixToEulerXYZSym(self.directTransformSym)
-        jacobian = eulerTransofrm.jacobian(self.jointsSym)
-        return jacobian
+    def _jacobian(self, orientation:OrientationType = OrientationType.EULER):
+        """
+        Compute the Analitical Jacobian of the forward kinematic transformation
 
-        Transform = sympy.eye(4)
-        z_vector = sympy.Matrix([[0],[0],[1]])
-        J = []
-        for T in self.denavitRows:
-            if T.joint is None:
-                Transform = Transform*T.TransformSym
-                continue
-            elif T.joint.type is JointType.PRISMATIC:
-                translation = Transform[0:3,0:3]*z_vector
-                J_row = sympy.Matrix([translation,sympy.zeros(3,1)]).T
-            elif T.joint.type is JointType.ROTATIONAL:
-                rotation    = Transform[0:3,0:3]*z_vector
-                translation = rotation.cross(self.getTranslationSym()-Transform[0:3,3])
-                J_row = sympy.Matrix([translation,rotation]).T
-            else:
-                raise ValueError("Invalid joint type")
-            Transform = Transform*T.TransformSym
+        #param orientation: modify with what type of orientation representation 
+            the jacobian is built. Choices:
+            - EULER: uses xyz and euler angles xyz
+            - MATRIX: uses xyz and n and o vectors of the rotation matrix
+            - QUATERNION: uses xyz and a quaternion
+        """
+        rot = self.getRotationSym()
+        pos = self.getTranslationSym()
+        if   OrientationType.NONE == orientation:
+            expression = pos
+        elif OrientationType.EULER ==  orientation:
+            expression = Rotations().matrixToEulerXYZSym(self.directTransformSym)
+        elif OrientationType.MATRIX ==  orientation:
+            expression = sympy.Matrix([pos, rot[0:3,0], rot[0:3,1] ])
+        elif OrientationType.QUATERNION == orientation:
+            quat = sympy.Quaternion.from_rotation_matrix(rot)
+            expression = sympy.Matrix([pos, quat.a, quat.b, quat.c, quat.d])
+        else:
+            raise Exception("Unknown orientation type")
+        return expression.jacobian(self.jointsSym)
 
-            J.append(J_row)
-        self.jacobian = sympy.Matrix(J).T
-        self.jacobian = sympy.nsimplify(self.jacobian,tolerance=1e-10,rational=True)
-        return self.jacobian
-    
-    # def _jacobianPinv(self):
-    #     sympy.singular_value_decomposition()
+    def inversePositionEval(self, init_joint_pose, end_pose, iterations=100, tolerance=1e-9):
+        joints  = np.transpose(np.array([init_joint_pose]))
+        endPose = np.transpose(np.array([end_pose]))
+        
+        for it in range(iterations):
+            # Extract current pose as HTM
+            currentPoseMatrix = self.eval(joints.ravel())
+            # Retrive position
+            subs = {sym:val for sym,val in zip(self.jointsSym,joints)}
+            currentPose = sympy.Matrix([currentPoseMatrix[0:3,3]]).evalf(subs = subs)
+            # Calculate difference and error
+            delta = endPose - np.array(currentPose).astype(np.float64).transpose()
+            error = np.linalg.norm(delta)**2
+            print(f"[{it}] {error}")
+            if error < tolerance:
+                print(f"Solution with error {error} in {it} iterations")
+                return joints.ravel()
 
-    def inversePositionEval(self, init_joint_pose, end_pose, iterations=1000, tolerance=1e-6):
-        joints = np.transpose(np.array([init_joint_pose]))
-        endPoseEuler= np.transpose(np.array([end_pose]))
-        currentPoseEuler = Rotations().matrixToEulerXYZ(self.eval(init_joint_pose))[0:3]
-        deltaPoseEuler = endPoseEuler - currentPoseEuler
-        error = np.linalg.norm(deltaPoseEuler)**2
-        while error > tolerance and iterations > 0:
-            iterations -= 1
-
+            # Compute jacobian, invert it and compute the delta in joints
             currentJacobian = self.jacobianPosLambda(*joints.ravel())
             currentJacobianInv = np.linalg.pinv(currentJacobian)
-            deltaJoints = np.matmul(currentJacobianInv,deltaPoseEuler)
+            deltaJoints = np.matmul(currentJacobianInv,delta)
 
             joints = joints + deltaJoints
-
-            currentPoseEuler = Rotations().matrixToEulerXYZ(self.eval(joints.ravel()))[0:3]
-            deltaPoseEuler = endPoseEuler - currentPoseEuler
-            error = np.linalg.norm(deltaPoseEuler)**2
-            print(error)
             
-        print(f"Solution with error {error} in {1000-iterations} iterations")
-        return joints.ravel()
+        print(f"Failed to compute positional inverse kinematics (Error: {error})")
+        return init_joint_pose
 
-    def inverseEval(self, init_joint_pose, end_pose, iterations=1000, tolerance=1e-5):
+    def inverseEval(self, init_joint_pose, end_pose, iterations=100, tolerance=1e-9):
         # Adjust position
         joints = self.inversePositionEval(init_joint_pose, end_pose[0:3,3])
         # Adjust orientation
+        pos = sympy.Matrix(end_pose[0:3,3])
+        rot = sympy.Matrix(end_pose[0:3,0:3])
         joints = np.transpose(np.array([joints]))
-        endPoseEuler = Rotations().matrixToEulerXYZ(end_pose)
-        currentPoseEuler = Rotations().matrixToEulerXYZ(self.eval(init_joint_pose))
-        deltaPoseEuler = endPoseEuler - currentPoseEuler
-        error = np.linalg.norm(deltaPoseEuler)**2
-        while error > tolerance and iterations > 0:
-            iterations -= 1
-            
+        if   OrientationType.NONE == self.jacobianOriType:
+            return list(joints.ravel())
+        elif OrientationType.EULER == self.jacobianOriType:
+            endPose = Rotations().matrixToEulerXYZ(end_pose)
+        elif OrientationType.MATRIX == self.jacobianOriType:
+            endPose = sympy.Matrix([pos, rot[0:3,0], rot[0:3,1] ])
+        elif OrientationType.QUATERNION == self.jacobianOriType:
+            quat = sympy.Quaternion.from_rotation_matrix(rot)
+            endPose = sympy.Matrix([pos, quat.a, quat.b, quat.c, quat.d ])
+        endPose = np.array(endPose).astype(np.float64)
+
+        for it in range(iterations):
+            # Extract current pose as HTM
+            currentPoseMatrix = self.eval(joints.ravel())
+            # Adjust orientation type
+            pos = sympy.Matrix(currentPoseMatrix[0:3,3])
+            rot = sympy.Matrix(currentPoseMatrix[0:3,0:3])
+            if   OrientationType.EULER == self.jacobianOriType:
+                currentPose = Rotations().matrixToEulerXYZ(currentPoseMatrix)
+            elif OrientationType.MATRIX == self.jacobianOriType:
+                currentPose = sympy.Matrix([pos, rot[0:3,0], rot[0:3,1] ])
+            elif OrientationType.QUATERNION == self.jacobianOriType:
+                quat = sympy.Quaternion.from_rotation_matrix(rot)
+                currentPose = sympy.Matrix([pos, quat.a, quat.b, quat.c, quat.d ])
+            currentPose = np.array(currentPose).astype(np.float64)
+            # Calculate difference and error
+            delta = endPose - currentPose
+            error = np.linalg.norm(delta)**2
+            print(f"[{it}] {error}")
+            if error < tolerance:
+                print(f"Solution with error {error} in {it} iterations")
+                return joints.ravel()
+
+            # Compute jacobian, invert it and compute the delta in joints
             currentJacobian = self.jacobianLambda(*joints.ravel())
             currentJacobianInv = np.linalg.pinv(currentJacobian)
-            deltaJoints = np.matmul(currentJacobianInv,deltaPoseEuler)
+            deltaJoints = np.matmul(currentJacobianInv,delta)
 
             joints = joints + deltaJoints
-            joints = joints % (2*pi)
-
-            currentPoseEuler = Rotations().matrixToEulerXYZ(self.eval(joints.ravel()))
-            deltaPoseEuler = endPoseEuler - currentPoseEuler
-            error = np.linalg.norm(deltaPoseEuler)**2
-            print(error)
             
-        print(f"Solution with error {error} in {1000-iterations} iterations")
-        return list(joints.ravel())
+        print(f"Failed to compute inverse kinematics (Error: {error})")
+        return init_joint_pose
 
     def genCCode(self, filename:str=None, simplify:bool = False):
         from sympy.utilities.codegen import codegen
@@ -808,26 +864,95 @@ class Decoupled6DOF:
         return [sympy.Symbol(n) for n in names]
 
 if __name__ == "__main__" :
-    arm  = 10
-    farm = 5
-    palm = 1
-    fing = 1.2
+    # arm  = 10
+    # farm = 5
+    # palm = 1
+    # fing = 1.2
 
-    T_shz = DenavitRow(0    , 0    , 0    , -pi/2, Joint(sympy.Symbol('sh_z'),JointType.ROTATIONAL,upper_limit=165*pi/180, lower_limit=-pi/2))
-    T_shy = DenavitRow(pi/2 , 0    , 0    , pi/2,  Joint(sympy.Symbol('sh_y'),JointType.ROTATIONAL,upper_limit=pi/2,       lower_limit=-pi/2))
-    T_shx = DenavitRow(-pi/2, -arm , 0    , pi/2,  Joint(sympy.Symbol('sh_x'),JointType.ROTATIONAL,upper_limit=pi/2,       lower_limit=-pi/2))
-    T_elz = DenavitRow(0    , 0    , 0    , -pi/2, Joint(sympy.Symbol('el_z'),JointType.ROTATIONAL,upper_limit=165*pi/180, lower_limit=0))
-    T_elx = DenavitRow(0    , -farm, 0    , pi/2,  Joint(sympy.Symbol('el_x'),JointType.ROTATIONAL,upper_limit=pi/6,       lower_limit=-110*pi/180))
-    T_wrz = DenavitRow(pi/2 , 0    , 0    , -pi/2, Joint(sympy.Symbol('wr_z'),JointType.ROTATIONAL,upper_limit=10*pi/180,  lower_limit=-pi/6))
-    T_wry = DenavitRow(0    , 0    , -palm, 0,     Joint(sympy.Symbol('wr_y'),JointType.ROTATIONAL,upper_limit=pi/3,       lower_limit=-pi/2))
-    T_hdy = DenavitRow(0    , 0    , -fing, 0,     Joint(sympy.Symbol('hd_y'),JointType.ROTATIONAL,upper_limit=5*pi/180,   lower_limit=-pi/2))
+    # T_shz = DenavitRow(0    , 0    , 0    , -pi/2, Joint(sympy.Symbol('sh_z'),JointType.ROTATIONAL,upper_limit=165*pi/180, lower_limit=-pi/2))
+    # T_shy = DenavitRow(pi/2 , 0    , 0    , pi/2,  Joint(sympy.Symbol('sh_y'),JointType.ROTATIONAL,upper_limit=pi/2,       lower_limit=-pi/2))
+    # T_shx = DenavitRow(-pi/2, -arm , 0    , pi/2,  Joint(sympy.Symbol('sh_x'),JointType.ROTATIONAL,upper_limit=pi/2,       lower_limit=-pi/2))
+    # T_elz = DenavitRow(0    , 0    , 0    , -pi/2, Joint(sympy.Symbol('el_z'),JointType.ROTATIONAL,upper_limit=165*pi/180, lower_limit=0))
+    # T_elx = DenavitRow(0    , -farm, 0    , pi/2,  Joint(sympy.Symbol('el_x'),JointType.ROTATIONAL,upper_limit=pi/6,       lower_limit=-110*pi/180))
+    # T_wrz = DenavitRow(pi/2 , 0    , 0    , -pi/2, Joint(sympy.Symbol('wr_z'),JointType.ROTATIONAL,upper_limit=10*pi/180,  lower_limit=-pi/6))
+    # T_wry = DenavitRow(0    , 0    , -palm, 0,     Joint(sympy.Symbol('wr_y'),JointType.ROTATIONAL,upper_limit=pi/3,       lower_limit=-pi/2))
+    # T_hdy = DenavitRow(0    , 0    , -fing, 0,     Joint(sympy.Symbol('hd_y'),JointType.ROTATIONAL,upper_limit=5*pi/180,   lower_limit=-pi/2))
 
-    T_arm = DenavitDK((T_shz,T_shy,T_shx,T_elz,T_elx,T_wrz,T_wry,T_hdy),"humanArm8")
-    T_arm.genURDF()
+    # T_arm = DenavitDK((T_shz,T_shy,T_shx,T_elz,T_elx,T_wrz,T_wry,T_hdy),"humanArm8")
+    # T_arm.genURDF()
 
-    thumb = 0.8
-    T_thb = DenavitRow(0, 0, -thumb, 0)
+    # thumb = 0.8
+    # T_thb = DenavitRow(0, 0, -thumb, 0)
 
-    T_arm5 = DenavitDK((T_shz,T_shy,T_shx,T_elz,T_elx,T_thb),"humanArm5")
-    T_arm5.genURDF()
+    # T_arm5 = DenavitDK((T_shz,T_shy,T_shx,T_elz,T_elx,T_thb),"humanArm5")
+    # T_arm5.genURDF()
     
+    
+    """
+    TELBOT:
+    """
+    L_telbot = [1.3, -0.6, 1.2, 0.4, 1.1, 0.2, 0.5]
+    T_telbot = DenavitDK(
+        (
+            DenavitRow(0, L_telbot[0], 0, -pi/2, Joint(sympy.Symbol('q_0'),JointType.ROTATIONAL)),
+            DenavitRow(0, L_telbot[1], 0,  pi/2, Joint(sympy.Symbol('q_1'),JointType.ROTATIONAL)),
+            DenavitRow(0, L_telbot[2], 0, -pi/2, Joint(sympy.Symbol('q_2'),JointType.ROTATIONAL)),
+            DenavitRow(0, L_telbot[3], 0,  pi/2, Joint(sympy.Symbol('q_3'),JointType.ROTATIONAL)),
+            DenavitRow(0, L_telbot[4], 0, -pi/2, Joint(sympy.Symbol('q_4'),JointType.ROTATIONAL)),
+            DenavitRow(0, L_telbot[5], 0,  pi/2, Joint(sympy.Symbol('q_5'),JointType.ROTATIONAL)),
+            DenavitRow(0, L_telbot[6], 0, 0,     Joint(sympy.Symbol('q_6'),JointType.ROTATIONAL))
+        ),
+        "Telbot", jacobianOrientation=OrientationType.MATRIX
+    )
+    print(T_telbot.directTransformSym)
+    T_telbot.genCCode()
+    T_telbot.genURDF()
+
+    print(T_telbot.eval((pi, pi/2, 0, -pi/2, 0, 0, 0)))
+
+    endpose = np.array((
+        (1,0,0,-1.2),
+        (0,1,0,0),
+        (0,0,1,2.9),
+        (0,0,0,1)
+    ))
+    sol = T_telbot.inverseEval((0,0,0,0,0,0,0),endpose)
+    print(sol)
+    print(T_telbot.eval(sol))
+
+    print("Failure testing")
+    # endposeR = Rotations().eulerToMatrixSequence("xyz",0,pi/2,0)
+    endpose = np.array((
+        (0,0,-1,-1.2),
+        (0,1,0,0),
+        (1,0,0,2.9),
+        (0,0,0,1)
+    ))
+    sol = T_telbot.inverseEval((0,0,0,0,0,0,0),endpose)
+    print(sol)
+    print(T_telbot.eval(sol))
+
+    """
+    CMM: 
+    REAL theta[NUM_DOFS] = { 3.1415926536f, 1.5707963268f, -0.08429940287f, 0.0f,0.0f};
+    REAL alpha[NUM_DOFS] = { 1.5707963268f,0.0f,-1.5707963268f, 0.0f, 0.0f };
+    REAL link[NUM_DOFS] = { 0.0f,0.0f,0.0f,-25.68f,0.0f };
+    REAL offset[NUM_DOFS] = { 597.8f, 1202.0f, 700.57f, 950.0f, 0.0f };
+    """
+
+    # T_cmmscee = DenavitDK(
+    #     (
+    #         DenavitRow( pi,            0.0,     0.5978 , pi/2, Joint(sympy.Symbol('RadialDrive'),JointType.PRISMATIC)),
+    #         DenavitRow( pi/2,          0.0,     1.202  , 0.0,  Joint(sympy.Symbol('Lift'),JointType.ROTATIONAL)),
+    #         DenavitRow(-0.08429940287, 0.0,     0.70057,-pi/2, Joint(sympy.Symbol('Tilt'),JointType.ROTATIONAL)),
+    #         DenavitRow( 0,            -0.02568, 0.95   , 0.0,  Joint(sympy.Symbol('CRO'),JointType.ROTATIONAL)),
+    #         DenavitRow( 0,             0.0,     0.00   , 0.0,  Joint(sympy.Symbol('HRO'),JointType.ROTATIONAL))
+    #     ),
+    #     "CmmScee"
+    # )
+
+    # print(T_cmmscee.directTransformSym)
+    # print("Generating C code..")
+    # T_cmmscee.genCCode()
+    # print("Generating Urdf...")
+    # T_cmmscee.genURDF()
