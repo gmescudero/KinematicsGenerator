@@ -420,6 +420,13 @@ class DenavitDK:
         elif not filename.endswith(".urdf"):
             filename += ".urdf"
 
+        # Compute robot scale
+        scale = 0
+        for dr in self.denavitRows:
+            _,d,a,_ = dr.dhParams
+            scale += np.abs(d) + np.abs(a)
+        scale *= 0.015
+
         with open(filename,'w+') as robfile:
             links = []
             # File heading
@@ -428,15 +435,15 @@ class DenavitDK:
             robfile.write("<!-- https://github.com/gmescudero/KinematicsGenerator -->\n")
             robfile.write(f"<robot name=\"{self.name}\">\n")
             # Add world link
-            robfile.write(self._genURDFWorldLink(links))
+            robfile.write(self._genURDFWorldLink(links,scale))
             # Add links
-            robfile.write(self._genURDFLinks(links))
+            robfile.write(self._genURDFLinks(links,scale))
             # Add joints
             robfile.write(self._genURDFJoints(links))
             # File ending
             robfile.write("</robot>")
 
-    def _genURDFWorldLink(self,links:list) -> str:
+    def _genURDFWorldLink(self,links:list,scale:float) -> str:
         string =  '\t<!-- ******************* WORLD LINK ******************* -->\n'
         # Add world and base links
         string +=  '\t<link name="world"/>\n'
@@ -444,10 +451,13 @@ class DenavitDK:
         string +=  '\t\t<origin xyz="0 0 0" rpy="0 0 0" />\n'
         string +=  '\t\t<visual>\n'
         string +=  '\t\t\t<geometry>\n'
-        radius = np.linalg.norm(self.zeroPose[0:3])/15
-        string += f'\t\t\t\t<cylinder radius=\"{radius*2}\" length=\"{radius*0.5}\" />\n'
+        string += f'\t\t\t\t<cylinder radius=\"{scale*8}\" length=\"{scale}\" />\n'
         string +=  '\t\t\t</geometry>\n'
         string +=  '\t\t</visual>\n'
+        string +=  '\t\t<inertial>\n'
+        string += f'\t\t\t<mass value="0.0" />\n'
+        string += f'\t\t\t<inertia ixx="0.0" ixy="0.0" ixz="0.0"  iyy="0.0" iyz="0.0" izz="0.0" />\n'
+        string +=  '\t\t</inertial>\n'
         string += '\t</link>\n'
         links.append('base_joint')
         # Add base joint fixed to world
@@ -458,13 +468,13 @@ class DenavitDK:
         string +=  '\t</joint>\n'
         return string
 
-    def _genURDFLinks(self,links:list) -> str:
+    def _genURDFLinks(self,links:list,scale:float) -> str:
         string = ''
         density = 1
         linksNum = 1
         material = URDFMaterials()
         material_str = material.getCurrentMaterialStr()
-        radius = np.linalg.norm(self.zeroPose[0:3])/70
+        radius = scale
         radius_delta = radius/(len(self.denavitRows)+1)
         for dr in self.denavitRows:
             _,d,a,_ = dr.dhParams
@@ -491,55 +501,60 @@ class DenavitDK:
                 string +=  '\t\t\t</geometry>\n'
                 string += material_str
                 string +=  '\t\t</visual>\n'
+                string +=  '\t\t<inertial>\n'
+                string += f'\t\t\t<mass value="0.0" />\n'
+                string += f'\t\t\t<inertia ixx="0.0" ixy="0.0" ixz="0.0"  iyy="0.0" iyz="0.0" izz="0.0" />\n'
+                string +=  '\t\t</inertial>\n'
             string +=  '\t</link>\n'
 
             ## Link visual
-            string += f'\t<link name="{name}">\n'
-            # Visual section
-            string +=  '\t\t<visual>\n'
-            string += f'\t\t\t<origin xyz="0 0 {link/2}" rpy="0 0 0" />\n'
-            string +=  '\t\t\t<geometry>\n'
-            string += f'\t\t\t\t<cylinder radius=\"{radius}\" length=\"{link}\" />\n'
-            string +=  '\t\t\t</geometry>\n'
-            string += material_str
-            string +=  '\t\t</visual>\n'
-            # Collision section
-            string +=  '\t\t<collision>\n'
-            string += f'\t\t\t<origin xyz="0 0 {link/2}" rpy="0 0 0" />\n'
-            string +=  '\t\t\t<geometry>\n'
-            # make collision length a little shorter to avoid self colliding
-            string += f'\t\t\t\t<cylinder radius=\"{radius}\" length=\"{link*0.85}\" />\n'
-            string +=  '\t\t\t</geometry>\n'
-            string +=  '\t\t</collision>\n'
-            # Inertial section
-            ixx = (1/12)*mass*(3*radius**2 + link**2)
-            iyy = (1/12)*mass*(3*radius**2 + link**2)
-            izz = (1/12)*mass*link**2
-            string +=  '\t\t<inertial>\n'
-            string += f'\t\t\t<mass value=\"{mass}\" />\n'
-            string += f'\t\t\t<inertia ixx="{ixx}" ixy="0.0" ixz="0.0"  iyy="{iyy}" iyz="0.0" izz="{izz}" />\n'
-            string +=  '\t\t</inertial>\n'
+            if link > 1e-9:
+                string += f'\t<link name="{name}">\n'
+                # Visual section
+                string +=  '\t\t<visual>\n'
+                string += f'\t\t\t<origin xyz="0 0 {link/2}" rpy="0 0 0" />\n'
+                string +=  '\t\t\t<geometry>\n'
+                string += f'\t\t\t\t<cylinder radius=\"{radius}\" length=\"{link}\" />\n'
+                string +=  '\t\t\t</geometry>\n'
+                string += material_str
+                string +=  '\t\t</visual>\n'
+                # Collision section
+                string +=  '\t\t<collision>\n'
+                string += f'\t\t\t<origin xyz="0 0 {link/2}" rpy="0 0 0" />\n'
+                string +=  '\t\t\t<geometry>\n'
+                # make collision length a little shorter to avoid self colliding
+                string += f'\t\t\t\t<cylinder radius=\"{radius}\" length=\"{link-(radius*2.1)}\" />\n'
+                string +=  '\t\t\t</geometry>\n'
+                string +=  '\t\t</collision>\n'
+                # Inertial section
+                ixx = (1/12)*mass*(3*radius**2 + link**2)
+                iyy = (1/12)*mass*(3*radius**2 + link**2)
+                izz = (1/12)*mass*link**2
+                string +=  '\t\t<inertial>\n'
+                string += f'\t\t\t<mass value=\"{mass}\" />\n'
+                string += f'\t\t\t<inertia ixx="{ixx}" ixy="0.0" ixz="0.0"  iyy="{iyy}" iyz="0.0" izz="{izz}" />\n'
+                string +=  '\t\t</inertial>\n'
 
-            string +=  '\t</link>\n'
+                string +=  '\t</link>\n'
 
-            # Join the two visuals
-            if   1e-6 > np.abs(link):
-                angle = 0
-            elif 1e-6 > np.abs(d) and 0 < a:
-                angle = pi/2
-            elif 1e-6 > np.abs(d) and 0 > a:
-                angle = -pi/2
-            elif 1e-6 > a and 0 < d:
-                angle = 0
-            elif 1e-6 > a and 0 > d:
-                angle = pi
-            else:
-                angle = np.arctan2(a/link,d/link)
-            string += f'\t<joint name="{name}_joint" type="fixed">\n'
-            string += f'\t\t<origin xyz="0 0 0" rpy="0 {angle} 0"/>\n'
-            string += f'\t\t<parent link="{name}_joint"/>\n'
-            string += f'\t\t<child link="{name}"/>\n'
-            string +=  '\t</joint>\n'
+                # Join the two visuals
+                if   1e-6 > np.abs(link):
+                    angle = 0
+                elif 1e-6 > np.abs(d) and 0 < a:
+                    angle = pi/2
+                elif 1e-6 > np.abs(d) and 0 > a:
+                    angle = -pi/2
+                elif 1e-6 > a and 0 < d:
+                    angle = 0
+                elif 1e-6 > a and 0 > d:
+                    angle = pi
+                else:
+                    angle = np.arctan2(a/link,d/link)
+                string += f'\t<joint name="{name}_joint" type="fixed">\n'
+                string += f'\t\t<origin xyz="0 0 0" rpy="0 {angle} 0"/>\n'
+                string += f'\t\t<parent link="{name}_joint"/>\n'
+                string += f'\t\t<child link="{name}"/>\n'
+                string +=  '\t</joint>\n'
 
         string += '\n'
         return string
@@ -886,5 +901,4 @@ if __name__ == "__main__" :
 
     T_arm5 = DenavitDK((T_shz,T_shy,T_shx,T_elz,T_elx,T_thb),"humanArm5")
     T_arm5.genURDF()
-    
     
