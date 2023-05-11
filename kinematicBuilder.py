@@ -864,95 +864,27 @@ class Decoupled6DOF:
         return [sympy.Symbol(n) for n in names]
 
 if __name__ == "__main__" :
-    # arm  = 10
-    # farm = 5
-    # palm = 1
-    # fing = 1.2
+    arm  = 10
+    farm = 5
+    palm = 1
+    fing = 1.2
 
-    # T_shz = DenavitRow(0    , 0    , 0    , -pi/2, Joint(sympy.Symbol('sh_z'),JointType.ROTATIONAL,upper_limit=165*pi/180, lower_limit=-pi/2))
-    # T_shy = DenavitRow(pi/2 , 0    , 0    , pi/2,  Joint(sympy.Symbol('sh_y'),JointType.ROTATIONAL,upper_limit=pi/2,       lower_limit=-pi/2))
-    # T_shx = DenavitRow(-pi/2, -arm , 0    , pi/2,  Joint(sympy.Symbol('sh_x'),JointType.ROTATIONAL,upper_limit=pi/2,       lower_limit=-pi/2))
-    # T_elz = DenavitRow(0    , 0    , 0    , -pi/2, Joint(sympy.Symbol('el_z'),JointType.ROTATIONAL,upper_limit=165*pi/180, lower_limit=0))
-    # T_elx = DenavitRow(0    , -farm, 0    , pi/2,  Joint(sympy.Symbol('el_x'),JointType.ROTATIONAL,upper_limit=pi/6,       lower_limit=-110*pi/180))
-    # T_wrz = DenavitRow(pi/2 , 0    , 0    , -pi/2, Joint(sympy.Symbol('wr_z'),JointType.ROTATIONAL,upper_limit=10*pi/180,  lower_limit=-pi/6))
-    # T_wry = DenavitRow(0    , 0    , -palm, 0,     Joint(sympy.Symbol('wr_y'),JointType.ROTATIONAL,upper_limit=pi/3,       lower_limit=-pi/2))
-    # T_hdy = DenavitRow(0    , 0    , -fing, 0,     Joint(sympy.Symbol('hd_y'),JointType.ROTATIONAL,upper_limit=5*pi/180,   lower_limit=-pi/2))
+    T_shz = DenavitRow(0    , 0    , 0    , -pi/2, Joint(sympy.Symbol('sh_z'),JointType.ROTATIONAL,upper_limit=165*pi/180, lower_limit=-pi/2))
+    T_shy = DenavitRow(pi/2 , 0    , 0    , pi/2,  Joint(sympy.Symbol('sh_y'),JointType.ROTATIONAL,upper_limit=pi/2,       lower_limit=-pi/2))
+    T_shx = DenavitRow(-pi/2, -arm , 0    , pi/2,  Joint(sympy.Symbol('sh_x'),JointType.ROTATIONAL,upper_limit=pi/2,       lower_limit=-pi/2))
+    T_elz = DenavitRow(0    , 0    , 0    , -pi/2, Joint(sympy.Symbol('el_z'),JointType.ROTATIONAL,upper_limit=165*pi/180, lower_limit=0))
+    T_elx = DenavitRow(0    , -farm, 0    , pi/2,  Joint(sympy.Symbol('el_x'),JointType.ROTATIONAL,upper_limit=pi/6,       lower_limit=-110*pi/180))
+    T_wrz = DenavitRow(pi/2 , 0    , 0    , -pi/2, Joint(sympy.Symbol('wr_z'),JointType.ROTATIONAL,upper_limit=10*pi/180,  lower_limit=-pi/6))
+    T_wry = DenavitRow(0    , 0    , -palm, 0,     Joint(sympy.Symbol('wr_y'),JointType.ROTATIONAL,upper_limit=pi/3,       lower_limit=-pi/2))
+    T_hdy = DenavitRow(0    , 0    , -fing, 0,     Joint(sympy.Symbol('hd_y'),JointType.ROTATIONAL,upper_limit=5*pi/180,   lower_limit=-pi/2))
 
-    # T_arm = DenavitDK((T_shz,T_shy,T_shx,T_elz,T_elx,T_wrz,T_wry,T_hdy),"humanArm8")
-    # T_arm.genURDF()
+    T_arm = DenavitDK((T_shz,T_shy,T_shx,T_elz,T_elx,T_wrz,T_wry,T_hdy),"humanArm8")
+    T_arm.genURDF()
 
-    # thumb = 0.8
-    # T_thb = DenavitRow(0, 0, -thumb, 0)
+    thumb = 0.8
+    T_thb = DenavitRow(0, 0, -thumb, 0)
 
-    # T_arm5 = DenavitDK((T_shz,T_shy,T_shx,T_elz,T_elx,T_thb),"humanArm5")
-    # T_arm5.genURDF()
+    T_arm5 = DenavitDK((T_shz,T_shy,T_shx,T_elz,T_elx,T_thb),"humanArm5")
+    T_arm5.genURDF()
     
     
-    """
-    TELBOT:
-    """
-    L_telbot = [1.3, -0.6, 1.2, 0.4, 1.1, 0.2, 0.5]
-    T_telbot = DenavitDK(
-        (
-            DenavitRow(0, L_telbot[0], 0, -pi/2, Joint(sympy.Symbol('q_0'),JointType.ROTATIONAL)),
-            DenavitRow(0, L_telbot[1], 0,  pi/2, Joint(sympy.Symbol('q_1'),JointType.ROTATIONAL)),
-            DenavitRow(0, L_telbot[2], 0, -pi/2, Joint(sympy.Symbol('q_2'),JointType.ROTATIONAL)),
-            DenavitRow(0, L_telbot[3], 0,  pi/2, Joint(sympy.Symbol('q_3'),JointType.ROTATIONAL)),
-            DenavitRow(0, L_telbot[4], 0, -pi/2, Joint(sympy.Symbol('q_4'),JointType.ROTATIONAL)),
-            DenavitRow(0, L_telbot[5], 0,  pi/2, Joint(sympy.Symbol('q_5'),JointType.ROTATIONAL)),
-            DenavitRow(0, L_telbot[6], 0, 0,     Joint(sympy.Symbol('q_6'),JointType.ROTATIONAL))
-        ),
-        "Telbot", jacobianOrientation=OrientationType.MATRIX
-    )
-    print(T_telbot.directTransformSym)
-    T_telbot.genCCode()
-    T_telbot.genURDF()
-
-    print(T_telbot.eval((pi, pi/2, 0, -pi/2, 0, 0, 0)))
-
-    endpose = np.array((
-        (1,0,0,-1.2),
-        (0,1,0,0),
-        (0,0,1,2.9),
-        (0,0,0,1)
-    ))
-    sol = T_telbot.inverseEval((0,0,0,0,0,0,0),endpose)
-    print(sol)
-    print(T_telbot.eval(sol))
-
-    print("Failure testing")
-    # endposeR = Rotations().eulerToMatrixSequence("xyz",0,pi/2,0)
-    endpose = np.array((
-        (0,0,-1,-1.2),
-        (0,1,0,0),
-        (1,0,0,2.9),
-        (0,0,0,1)
-    ))
-    sol = T_telbot.inverseEval((0,0,0,0,0,0,0),endpose)
-    print(sol)
-    print(T_telbot.eval(sol))
-
-    """
-    CMM: 
-    REAL theta[NUM_DOFS] = { 3.1415926536f, 1.5707963268f, -0.08429940287f, 0.0f,0.0f};
-    REAL alpha[NUM_DOFS] = { 1.5707963268f,0.0f,-1.5707963268f, 0.0f, 0.0f };
-    REAL link[NUM_DOFS] = { 0.0f,0.0f,0.0f,-25.68f,0.0f };
-    REAL offset[NUM_DOFS] = { 597.8f, 1202.0f, 700.57f, 950.0f, 0.0f };
-    """
-
-    # T_cmmscee = DenavitDK(
-    #     (
-    #         DenavitRow( pi,            0.0,     0.5978 , pi/2, Joint(sympy.Symbol('RadialDrive'),JointType.PRISMATIC)),
-    #         DenavitRow( pi/2,          0.0,     1.202  , 0.0,  Joint(sympy.Symbol('Lift'),JointType.ROTATIONAL)),
-    #         DenavitRow(-0.08429940287, 0.0,     0.70057,-pi/2, Joint(sympy.Symbol('Tilt'),JointType.ROTATIONAL)),
-    #         DenavitRow( 0,            -0.02568, 0.95   , 0.0,  Joint(sympy.Symbol('CRO'),JointType.ROTATIONAL)),
-    #         DenavitRow( 0,             0.0,     0.00   , 0.0,  Joint(sympy.Symbol('HRO'),JointType.ROTATIONAL))
-    #     ),
-    #     "CmmScee"
-    # )
-
-    # print(T_cmmscee.directTransformSym)
-    # print("Generating C code..")
-    # T_cmmscee.genCCode()
-    # print("Generating Urdf...")
-    # T_cmmscee.genURDF()
