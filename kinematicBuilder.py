@@ -1,9 +1,21 @@
 from cmath import pi
 import numpy as np
 import sympy
-from sympy.abc import x,y,z
 from dataclasses import dataclass
 from enum import Enum
+
+def printM(name:str, M):
+    try: 
+        M = sympy.nsimplify(M,tolerance=1e-12,rational=True).evalf()
+    except Exception:
+        pass
+
+    print(f"{name}\t---------------------------------------\n"+
+          f"> pos:\t{float(M[0,3]):.2f}\t{float(M[1,3]):.2f}\t{float(M[2,3]):.2f} \n"+
+          f"> ori:\t{float(M[0,0]):.2f}\t{float(M[0,1]):.2f}\t{float(M[0,2]):.2f} \n"+
+          f"      \t{float(M[1,0]):.2f}\t{float(M[1,1]):.2f}\t{float(M[1,2]):.2f} \n"+
+          f"      \t{float(M[2,0]):.2f}\t{float(M[2,1]):.2f}\t{float(M[2,2]):.2f}")
+    
 
 class OrientationType(Enum):
     NONE = -1
@@ -18,21 +30,9 @@ class Rotations:
         self.gamma = sympy.Symbol('gamma')
         self.theta = sympy.Symbol('theta')
         # Nominal rotations
-        self.zRotM = sympy.Matrix([
-            [sympy.cos(self.theta),-sympy.sin(self.theta), 0],
-            [sympy.sin(self.theta), sympy.cos(self.theta), 0],
-            [0                    , 0                    , 1]
-        ])
-        self.yRotM = sympy.Matrix([
-            [sympy.cos(self.theta), 0,-sympy.sin(self.theta)],
-            [0                    , 1, 0                    ],
-            [sympy.sin(self.theta), 0, sympy.cos(self.theta)]
-        ])
-        self.xRotM = sympy.Matrix([
-            [1, 0                    , 0                    ],
-            [0, sympy.cos(self.theta),-sympy.sin(self.theta)],
-            [0, sympy.sin(self.theta), sympy.cos(self.theta)]
-        ])
+        self.zRotM = sympy.rot_axis3(self.theta)
+        self.yRotM = sympy.rot_axis2(self.theta)
+        self.xRotM = sympy.rot_axis1(self.theta)
         # Rodriges formula
         self.p = sympy.Matrix([sympy.Symbol('p_x'),sympy.Symbol('p_y'),sympy.Symbol('p_z'),])
         self.k = sympy.Matrix([sympy.Symbol('k_x'),sympy.Symbol('k_y'),sympy.Symbol('k_z'),])
@@ -47,7 +47,7 @@ class Rotations:
             [sympy.zeros(1,3),  sympy.eye(1)                       ]
         ])
     
-    def eulerToMatrixSequenceSym(self,sequence:str, a=sympy.abc.a,b=sympy.abc.b,c=sympy.abc.c):
+    def eulerToMatrixSequenceSym(self,sequence:str, a=sympy.Symbol('a'),b=sympy.Symbol('b'),c=sympy.Symbol('c')):
         if len(sequence) != 3: return None
         rotSymbols = [a,b,c]
         rotM = sympy.eye(3)
@@ -176,7 +176,7 @@ class DenavitRow(Denavit):
         T = T.subs(self.alfa,dh_alfa)
         self.TransformSym = T
         if joint is None:
-            self.TransformLambda = sympy.lambdify(x,T)
+            self.TransformLambda = sympy.lambdify(sympy.Symbol('x'),T)
         else:
             self.TransformLambda = sympy.lambdify(joint.symbol,T) 
 
@@ -280,10 +280,15 @@ class DenavitDK:
         self.jacobianOriType = jacobianOrientation
         # Calculate jacobian
         self.jacobian = self._jacobian(jacobianOrientation)
-        self.jacobianLambda = sympy.lambdify(self.jointsSym,self.jacobian)
-        # Calculate position only jacobian
-        self.jacobianPos = self.jacobian[0:3,:]
-        self.jacobianPosLambda = sympy.lambdify(self.jointsSym,self.jacobianPos)
+        if self.jacobian is None:
+            self.jacobianLambda = None
+            self.jacobianPos = None
+            self.jacobianPosLambda = None
+        else:
+            self.jacobianLambda = sympy.lambdify(self.jointsSym,self.jacobian)
+            # Calculate position only jacobian
+            self.jacobianPos = self.jacobian[0:3,:]
+            self.jacobianPosLambda = sympy.lambdify(self.jointsSym,self.jacobianPos)
         # Store zero position
         self.zeroPose = self.eval(np.zeros(self.jointsNum))
 
@@ -306,6 +311,7 @@ class DenavitDK:
             - MATRIX: uses xyz and n and o vectors of the rotation matrix
             - QUATERNION: uses xyz and a quaternion
         """
+        if 0 == self.jointsNum: return None
         rot = self.getRotationSym()
         pos = self.getTranslationSym()
         if   OrientationType.NONE == orientation:
@@ -593,17 +599,20 @@ class DenavitDK:
 
 class TwoLinkPlanar:
 
-    def __init__(self, a1=None, a2=None) -> None:
-        self.a1 = sympy.Symbol('a_1') if a1 is None else a1
-        self.a2 = sympy.Symbol('a_2') if a2 is None else a2
+    def __init__(self, a1=None,a2=None,q1=None,q2=None,x=None,y=None) -> None:
+        self.a1 = sympy.Symbol('a_1')
+        self.a2 = sympy.Symbol('a_2')
         self.q1 = sympy.Symbol('q_1')
         self.q2 = sympy.Symbol('q_2')
-        self.x  = x
-        self.y  = y
+        self.x  = sympy.Symbol('x')
+        self.y  = sympy.Symbol('y')
         self.theta = sympy.Symbol('theta')
-        self.directLambda  = lambda q1,q2: None
-        self.inverseLambda = lambda x,y: None
-        self._resetSymbolsAndLambdas()
+        # Compute direct and inverse with default symbols
+        self._directSymBaseEuler = self.directKinSymbols()
+        self._directSymBase  = self.directKinHomoTSymbols()
+        self._inverseSymBase = self.inverseKinSymbols()
+        # Compute direct and inverse kinematics with custom symbols
+        self.setSymbols(a1,a2,q1,q2,x,y)
 
     def directKinSymbols(self):
         x_dk     = self.a1*sympy.cos(self.q1) + self.a2*sympy.cos(self.q1+self.q2)
@@ -627,25 +636,25 @@ class TwoLinkPlanar:
         q1_ik = sympy.atan2(self.y,self.x) - sympy.atan2(self.a2*sympy.sin(q2_ik), self.a1 + self.a2*sympy.cos(q2_ik))
         return sympy.Matrix((q1_ik,q2_ik))
 
-    def setLengths(self,a1,a2):
-        self.a1 = a1
-        self.a2 = a2
-        self._resetSymbolsAndLambdas()
-    
-    def setJointCoordinates(self,joint1,joint2):
-        self.q1 = joint1
-        self.q2 = joint2
-        self._resetSymbolsAndLambdas()
+    def setSymbols(self,a1=None,a2=None,q1=None,q2=None,x=None,y=None):
+        self._substitutions = {
+            self.a1:a1 if a1 is not None else self.a1, 
+            self.a2:a2 if a2 is not None else self.a2,
+            self.q1:q1 if q1 is not None else self.q1, 
+            self.q2:q2 if q2 is not None else self.q2,
+            self.x:x if x is not None else self.x, 
+            self.y:y if y is not None else self.y
+        }
+        self.directSymEuler = self._directSymBaseEuler.subs(self._substitutions,simultaneous=True)
+        self.directSym  = self._directSymBase.subs(self._substitutions,simultaneous=True)
+        self.inverseSym = self._inverseSymBase.subs(self._substitutions,simultaneous=True)
 
-    def setCartesianCoordinates(self,coord1,coord2):
-        self.x = coord1
-        self.y = coord2
-        self._resetSymbolsAndLambdas()
-    
-    def _resetSymbolsAndLambdas(self):
-        # Compute simbolic kinematics
-        self.directSym  = self.directKinHomoTSymbols()
-        self.inverseSym = self.inverseKinSymbols()
+        # Clean almost zero values
+        self.directSym = sympy.nsimplify(self.directSym,tolerance=1e-12,rational=True)
+        self.directSym = self.directSym.evalf()
+        self.inverseSym = sympy.nsimplify(self.inverseSym,tolerance=1e-12,rational=True)
+        self.inverseSym = self.inverseSym.evalf()
+
         # Compute lambda kinematic functions 
         try:
             self.directLambda  = sympy.lambdify((self.q1,self.q2),self.directSym)
@@ -656,47 +665,59 @@ class TwoLinkPlanar:
 
 class TwoLinkAndBase():
 
-    def __init__(self, a1=None, a2=None) -> None:
-        self.a1 = sympy.Symbol('a_1') if a1 is None else a1
-        self.a2 = sympy.Symbol('a_2') if a2 is None else a2
+    def __init__(self, a1=None,a2=None,q1=None,q2=None,q3=None,x=None,y=None,z=None) -> None:
+        self.a1 = sympy.Symbol('a_1') 
+        self.a2 = sympy.Symbol('a_2')
         self.q1 = sympy.Symbol('q_1')
         self.q2 = sympy.Symbol('q_2')
         self.q3 = sympy.Symbol('q_3')
-        self.x = x
-        self.y = y
-        self.z = z
+        self.x = sympy.Symbol('x')
+        self.y = sympy.Symbol('y')
+        self.z = sympy.Symbol('z')
         self._r = sympy.sqrt(self.x**2 + self.y**2)
-        self.twoLink = TwoLinkPlanar(a1,a2)
-        self.twoLink.setCartesianCoordinates(self._r, self.z)
-        self.twoLink.setJointCoordinates(self.q2,self.q3)
-        # Initialize symbolic kinematics
-        self.directSym  = self.directKinHomoTSymbols()
-        self.inverseSym = self.inverseKinSymbols()   
-        # Initialize lambdas
-        self.directLambda  = lambda q1,q2,q3: None
-        self.inverseLambda = lambda x, y, z : None
-        # Compute symbolic kinematics and lambda functions
-        self._resetSymbolsAndLambdas()
+        self.twoLink = TwoLinkPlanar(self.a1,self.a2,self.q2,self.q3,self._r,self.z)
+        # Compute direct and inverse with default symbols
+        self._directSymBase  = self.directKinHomoTSymbols()
+        self._inverseSymBase = self.inverseKinSymbols()
+        # Compute direct and inverse kinematics with custom symbols
+        self.setSymbols(a1,a2,q1,q2,q3,x,y,z) 
 
-    def setLengths(self,a1,a2):
-        self.a1 = a1
-        self.a2 = a2
-        self._resetSymbolsAndLambdas()
-    
-    def setJointCoordinates(self,joint1,joint2,joint3):
-        self.q1 = joint1
-        self.q2 = joint2
-        self.q3 = joint3
-        self._resetSymbolsAndLambdas()
 
-    def setCartesianCoordinates(self,coord1,coord2,coord3):
-        self.x = coord1
-        self.y = coord2
-        self.z = coord3
-        self._resetSymbolsAndLambdas()
+    def setSymbols(self,a1=None,a2=None,q1=None,q2=None,q3=None,x=None,y=None,z=None):
+        self._substitutions = {
+            self.a1:a1 if a1 is not None else self.a1, 
+            self.a2:a2 if a2 is not None else self.a2,
+            self.q1:q1 if q1 is not None else self.q1, 
+            self.q2:q2 if q2 is not None else self.q2, 
+            self.q3:q3 if q3 is not None else self.q3,
+            self.x:x if x is not None else self.x, 
+            self.y:y if y is not None else self.y,
+            self.z:z if z is not None else self.z
+        }
+        self._r = sympy.sqrt(self.x**2 + self.y**2).subs(self._substitutions)
+        self.twoLink.setSymbols(self._substitutions[self.a1], self._substitutions[self.a2], 
+                                self._substitutions[self.q2], self._substitutions[self.q3],
+                                self._r, self._substitutions[self.z] )
+
+        self.directSym  = self._directSymBase.subs(self._substitutions,simultaneous=True)
+        self.inverseSym = self._inverseSymBase.subs(self._substitutions,simultaneous=True)
+            
+        # Clean almost zero values
+        self.directSym = sympy.nsimplify(self.directSym,tolerance=1e-12,rational=True)
+        self.directSym = self.directSym.evalf()
+        self.inverseSym = sympy.nsimplify(self.inverseSym,tolerance=1e-12,rational=True)
+        self.inverseSym = self.inverseSym.evalf()
+
+        # Compute lambda kinematic functions 
+        try:
+            self.directLambda  = sympy.lambdify((self.q1,self.q2,self.q3),self.directSym)
+            self.inverseLambda = sympy.lambdify((self.x,self.y,self.z),self.inverseSym)
+        except SyntaxError:
+            self.directLambda  = lambda q1,q2,q3: None
+            self.inverseLambda = lambda x,y,z: None
         
     def directKinSymbols(self):
-        r_dk,z_dk,_,pitch_dk,_,_ = self.twoLink.directKinSymbols()
+        r_dk,z_dk,_,pitch_dk,_,_ = self.twoLink.directSymEuler
         x_dk = r_dk*sympy.cos(self.q1)
         y_dk = r_dk*sympy.sin(self.q1)
         yaw_dk = self.q1
@@ -716,24 +737,12 @@ class TwoLinkAndBase():
 
     def inverseKinSymbols(self):
         q1_ik = sympy.atan2(self.y,self.x)
-        q2_ik,q3_ik = self.twoLink.inverseKinSymbols()
+        q2_ik,q3_ik = self.twoLink.inverseSym
         return sympy.Matrix((q1_ik,q2_ik,q3_ik))
-        
-    def _resetSymbolsAndLambdas(self):
-        # Compute simbolic kinematics
-        self.directSym  = self.directKinHomoTSymbols()
-        self.inverseSym = self.inverseKinSymbols()
-        # Compute lambda kinematic functions 
-        try:
-            self.directLambda  = sympy.lambdify((self.q1,self.q2,self.q3),self.directSym)
-            self.inverseLambda = sympy.lambdify((self.x, self.y, self.z), self.inverseSym)
-        except SyntaxError:
-            self.directLambda  = lambda q1,q2,q3: None
-            self.inverseLambda = lambda x, y, z : None
 
 
 class SphericalWrist:
-    def __init__(self, sequence:str) -> None:
+    def __init__(self, sequence:str, q1=None,q2=None,q3=None,yaw=None,pitch=None,roll=None) -> None:
         self.q1 = sympy.Symbol('q_1')
         self.q2 = sympy.Symbol('q_2')
         self.q3 = sympy.Symbol('q_3')
@@ -742,26 +751,45 @@ class SphericalWrist:
         self.roll  = sympy.Symbol('alpha')
         self.sequence = sequence
         self.singularities = {}
-        # Initialize symbolic kinematics
-        self.directSym  = self.directKinHomoTSymbols()
-        self.inverseSym = self.inverseKinSymbols()   
-        # Initialize lambdas
-        self.directLambda  = lambda q1,q2,q3: None
-        self.inverseLambda = lambda x, y, z : None
-        # Cmpute symbolic kinematics and lambda functions
-        self._resetSymbolsAndLambdas()
+        # Compute direct and inverse with default symbols
+        self._directSymBase  = self.directKinHomoTSymbols()
+        self._inverseSymBase = self.inverseKinSymbols()
+        # Compute direct and inverse kinematics with custom symbols
+        self.setSymbols(q1,q2,q3,yaw,pitch,roll) 
 
-    def setJointCoordinates(self,joint1,joint2,joint3):
-        self.q1 = joint1
-        self.q2 = joint2
-        self.q3 = joint3
-        self._resetSymbolsAndLambdas()
+    def setSymbols(self,q1=None,q2=None,q3=None,x=None,y=None,z=None):
+        substitutions = {
+            self.q1:q1 if q1 is not None else self.q1, 
+            self.q2:q2 if q2 is not None else self.q2, 
+            self.q3:q3 if q3 is not None else self.q3,
+            self.yaw  :x if x is not None else self.yaw  , 
+            self.pitch:y if y is not None else self.pitch,
+            self.roll :z if z is not None else self.roll 
+        }
+        self.directSym  = self._directSymBase.subs(substitutions,simultaneous=True)
+        self.inverseSym = self._inverseSymBase.subs(substitutions,simultaneous=True)
 
-    def setCartesianCoordinates(self,coord1,coord2,coord3):
-        self.yaw   = coord1
-        self.pitch = coord2
-        self.roll  = coord3
-        self._resetSymbolsAndLambdas()
+        if q1 is not None:
+            self.inverseSym[0] = q1.subs({self.q1:self.inverseSym[0]})
+        if q2 is not None:
+            self.inverseSym[1] = q2.subs({self.q2:self.inverseSym[1]})
+        if q3 is not None:
+            self.inverseSym[2] = q3.subs({self.q3:self.inverseSym[2]})
+            
+        # Clean almost zero values
+        self.directSym = sympy.nsimplify(self.directSym,tolerance=1e-12,rational=True)
+        self.directSym = self.directSym.evalf() 
+        self.inverseSym = sympy.nsimplify(self.inverseSym,tolerance=1e-12,rational=True)
+        self.inverseSym = self.inverseSym.evalf()
+
+        # Compute lambda kinematic functions 
+        try:
+            self.directLambda  = sympy.lambdify((self.q1,self.q2,self.q3),self.directSym)
+            self.inverseLambda = sympy.lambdify((self.yaw,self.pitch,self.roll),self.inverseSym)
+        except SyntaxError:
+            self.directLambda  = lambda q1,q2,q3: None
+            self.inverseLambda = lambda x,y,z: None
+
 
     def directKinHomoTSymbols(self):
         self.rotM = Rotations().eulerToMatrixSequenceSym(self.sequence,self.q1,self.q2,self.q3)
@@ -769,13 +797,40 @@ class SphericalWrist:
             (self.rotM       , sympy.zeros(3,1) ),
             (sympy.zeros(1,3), sympy.ones(1,1)  )
         ))
-
+    
     def inverseKinSymbols(self):
+        rotM = sympy.MatrixSymbol('R',4,4)
+        if self.sequence == "xyz":
+            q1_dk = sympy.atan2( rotM[1,2], rotM[2,2])
+            q2_dk = sympy.asin( -rotM[0,2])
+            q3_dk = sympy.atan2( rotM[0,1], rotM[0,0])
+        elif self.sequence == "xyx":
+            q1_dk = sympy.atan2(-rotM[1,0], rotM[2,0])
+            q2_dk = sympy.acos(  rotM[0,0])
+            q3_dk = sympy.atan2( rotM[0,1], rotM[0,2])
+            self.singularities.update({self.pitch:0})
+        elif self.sequence == "zyz":
+            q1_dk = sympy.atan2( rotM[1,2], rotM[0,2])
+            q2_dk = sympy.acos(  rotM[2,2])
+            q3_dk = sympy.atan2( rotM[2,1],-rotM[2,0])
+            self.singularities.update({self.pitch:0})
+        else:
+            print(f"WARNING: Inverse kinematics for sequence {self.sequence} not supported")
+            return None
+
+        return sympy.Matrix((q1_dk,q2_dk,q3_dk))
+
+    def inverseKinEulerSymbols(self):
         rotM = Rotations().eulerToMatrixSequenceSym(self.sequence,self.yaw,self.pitch,self.roll)
         if self.sequence == "xyx":
             q1_dk = sympy.atan2(-rotM[1,0], rotM[2,0])
             q2_dk = sympy.acos(  rotM[0,0])
             q3_dk = sympy.atan2( rotM[0,1], rotM[0,2])
+            self.singularities.update({self.pitch:0})
+        elif self.sequence == "zyz":
+            q1_dk = sympy.atan2( rotM[1,2], rotM[0,2])
+            q2_dk = sympy.acos(  rotM[2,2])
+            q3_dk = sympy.atan2( rotM[2,1],-rotM[2,0])
             self.singularities.update({self.pitch:0})
         else:
             return None
@@ -788,49 +843,25 @@ class SphericalWrist:
     def inverse(self,y,p,r):
         return self.inverseLambda(y,p,r)
 
-    def _resetSymbolsAndLambdas(self):
-        # Compute simbolic kinematics
-        self.directSym  = self.directKinHomoTSymbols()
-        self.inverseSym = self.inverseKinSymbols()
-        print(f"Singularities in {self.singularities}")
-        # Compute direct kinematic symbols
-        dkSymbols = self._orderedSymbolsFromExpr(self.directSym)
-        # Compute lambda kinematic functions 
-        try:
-            self.directLambda  = sympy.lambdify(dkSymbols,self.directSym)
-            self.inverseLambda = sympy.lambdify((self.yaw, self.pitch, self.roll), self.inverseSym)
-        except SyntaxError:
-            self.directLambda  = lambda q1,q2,q3: None
-            self.inverseLambda = lambda x, y, z : None
-    
-    def _orderedSymbolsFromExpr(self,expression):
-        names = [sym.name for sym in expression.free_symbols]
-        names.sort()
-        return [sympy.Symbol(n) for n in names]
-
 
 class Decoupled6DOF:
-    def __init__(self,a1=None,a2=None) -> None:
-        self.a1 = sympy.Symbol('a_1') if a1 is None else a1
-        self.a2 = sympy.Symbol('a_2') if a2 is None else a2
+    def __init__(self,a1=None,a2=None,q1=None,q2=None,q3=None,q4=None,q5=None,q6=None,x=None,y=None,z=None,yaw=None,pitch=None,roll=None) -> None:
+        self.a1 = sympy.Symbol('a_1')
+        self.a2 = sympy.Symbol('a_2')
         self.q1 = sympy.Symbol('q_1')
         self.q2 = sympy.Symbol('q_2')
         self.q3 = sympy.Symbol('q_3')
         self.q4 = sympy.Symbol('q_4')
         self.q5 = sympy.Symbol('q_5')
         self.q6 = sympy.Symbol('q_6')
-        self.x = x
-        self.y = y
-        self.z = z
+        self.x = sympy.Symbol('x')
+        self.y = sympy.Symbol('y')
+        self.z = sympy.Symbol('z')
         self.yaw   = sympy.Symbol('gamma')
         self.pitch = sympy.Symbol('beta')
         self.roll  = sympy.Symbol('alpha')
-        self.positionSide    = TwoLinkAndBase(a1,a2)
-        self.positionSide.setCartesianCoordinates(self.x,self.y,self.z)
-        self.positionSide.setJointCoordinates(self.q1,self.q2,self.q3)
+        self.positionSide    = TwoLinkAndBase(a1,a2,self.q1,self.q2,self.q3,self.x,self.y,self.z)
         self.orientationSide = SphericalWrist("xyx")
-        self.orientationSide.setCartesianCoordinates(self.yaw,self.pitch,self.roll)
-        self.orientationSide.setJointCoordinates(self.q4,self.q5,self.q6)
         # Initialize symbolic kinematics
         self.directSym  = self.directKinHomoTSymbols()
         self.inverseSym = self.inverseKinSymbols()   
@@ -847,9 +878,9 @@ class Decoupled6DOF:
         positionKin    = self.positionSide.inverseKinSymbols()
         orientationFromPositon = sympy.Matrix(self.positionSide.directKinSymbols()[3:])
         orientationKin = self.orientationSide.inverseKinSymbols()
-        orientationFromPositon = orientationFromPositon.subs(self.q1,-positionKin[0])
-        orientationFromPositon = orientationFromPositon.subs(self.q2,-positionKin[1])
-        orientationFromPositon = orientationFromPositon.subs(self.q3,-positionKin[2])
+        orientationFromPositon = orientationFromPositon.subs(self.q1,-positionKin[0],simultaneous=True)
+        orientationFromPositon = orientationFromPositon.subs(self.q2,-positionKin[1],simultaneous=True)
+        orientationFromPositon = orientationFromPositon.subs(self.q3,-positionKin[2],simultaneous=True)
         
         return sympy.Matrix((positionKin,orientationFromPositon+orientationKin))
         
