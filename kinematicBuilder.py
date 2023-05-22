@@ -30,9 +30,9 @@ class Rotations:
         self.gamma = sympy.Symbol('gamma')
         self.theta = sympy.Symbol('theta')
         # Nominal rotations
-        self.zRotM = sympy.rot_axis3(self.theta)
-        self.yRotM = sympy.rot_axis2(self.theta)
-        self.xRotM = sympy.rot_axis1(self.theta)
+        self.zRotM = sympy.rot_axis3(self.theta).transpose()
+        self.yRotM = sympy.rot_axis2(self.theta).transpose()
+        self.xRotM = sympy.rot_axis1(self.theta).transpose()
         # Rodriges formula
         self.p = sympy.Matrix([sympy.Symbol('p_x'),sympy.Symbol('p_y'),sympy.Symbol('p_z'),])
         self.k = sympy.Matrix([sympy.Symbol('k_x'),sympy.Symbol('k_y'),sympy.Symbol('k_z'),])
@@ -60,8 +60,31 @@ class Rotations:
                 rotM = rotM*self.zRotM.subs(self.theta,symbol)
         return rotM
     
+    def matrixToEulerSequenceSym(self,sequence:str, rotM=sympy.MatrixSymbol('R',3,3)):
+        euler = [0,0,0]
+        if sequence == "xyz":
+            euler[0] = sympy.atan2(-rotM[1,2], rotM[2,2])
+            euler[1] = sympy.asin(  rotM[0,2])
+            euler[2] = sympy.atan2(-rotM[0,1], rotM[0,0])
+        elif sequence == "xyx":
+            euler[0] = sympy.atan2( rotM[1,0],-rotM[2,0])
+            euler[1] = sympy.acos(  rotM[0,0])
+            euler[2] = sympy.atan2( rotM[0,1], rotM[0,2])
+        elif sequence == "zyz":
+            euler[0] = sympy.atan2( rotM[1,2], rotM[0,2])
+            euler[1] = sympy.acos(  rotM[2,2])
+            euler[2] = sympy.atan2( rotM[2,1],-rotM[2,0])
+        else:
+            print(f"WARNING: Euler sequence \"{sequence}\" not supported")
+            return None
+        return sympy.Matrix(euler)
+    
     def eulerToMatrixSequence(self,sequence:str, a,b,c):
         sym = self.eulerToMatrixSequenceSym(sequence,a,b,c)
+        return np.array(sym.evalf())
+    
+    def matrixToEulerSequence(self, sequence:str, rotM):
+        sym = self.matrixToEulerSequenceSym(sequence,rotM)
         return np.array(sym.evalf())
 
     def zyxToMatrixSym(self,z,y,x):
@@ -749,6 +772,7 @@ class SphericalWrist:
         self.yaw   = sympy.Symbol('gamma')
         self.pitch = sympy.Symbol('beta')
         self.roll  = sympy.Symbol('alpha')
+        self.hmt   = sympy.MatrixSymbol('R',4,4)
         self.sequence = sequence
         self.singularities = {}
         # Compute direct and inverse with default symbols
@@ -785,10 +809,10 @@ class SphericalWrist:
         # Compute lambda kinematic functions 
         try:
             self.directLambda  = sympy.lambdify((self.q1,self.q2,self.q3),self.directSym)
-            self.inverseLambda = sympy.lambdify((self.yaw,self.pitch,self.roll),self.inverseSym)
+            self.inverseLambda = sympy.lambdify((self.hmt),self.inverseSym)
         except SyntaxError:
             self.directLambda  = lambda q1,q2,q3: None
-            self.inverseLambda = lambda x,y,z: None
+            self.inverseLambda = lambda hmt: None
 
 
     def directKinHomoTSymbols(self):
@@ -799,49 +823,14 @@ class SphericalWrist:
         ))
     
     def inverseKinSymbols(self):
-        rotM = sympy.MatrixSymbol('R',4,4)
-        if self.sequence == "xyz":
-            q1_dk = sympy.atan2( rotM[1,2], rotM[2,2])
-            q2_dk = sympy.asin( -rotM[0,2])
-            q3_dk = sympy.atan2( rotM[0,1], rotM[0,0])
-        elif self.sequence == "xyx":
-            q1_dk = sympy.atan2(-rotM[1,0], rotM[2,0])
-            q2_dk = sympy.acos(  rotM[0,0])
-            q3_dk = sympy.atan2( rotM[0,1], rotM[0,2])
-            self.singularities.update({self.pitch:0})
-        elif self.sequence == "zyz":
-            q1_dk = sympy.atan2( rotM[1,2], rotM[0,2])
-            q2_dk = sympy.acos(  rotM[2,2])
-            q3_dk = sympy.atan2( rotM[2,1],-rotM[2,0])
-            self.singularities.update({self.pitch:0})
-        else:
-            print(f"WARNING: Inverse kinematics for sequence {self.sequence} not supported")
-            return None
-
-        return sympy.Matrix((q1_dk,q2_dk,q3_dk))
-
-    def inverseKinEulerSymbols(self):
-        rotM = Rotations().eulerToMatrixSequenceSym(self.sequence,self.yaw,self.pitch,self.roll)
-        if self.sequence == "xyx":
-            q1_dk = sympy.atan2(-rotM[1,0], rotM[2,0])
-            q2_dk = sympy.acos(  rotM[0,0])
-            q3_dk = sympy.atan2( rotM[0,1], rotM[0,2])
-            self.singularities.update({self.pitch:0})
-        elif self.sequence == "zyz":
-            q1_dk = sympy.atan2( rotM[1,2], rotM[0,2])
-            q2_dk = sympy.acos(  rotM[2,2])
-            q3_dk = sympy.atan2( rotM[2,1],-rotM[2,0])
-            self.singularities.update({self.pitch:0})
-        else:
-            return None
-
-        return sympy.Matrix((q1_dk,q2_dk,q3_dk))
+        htm = sympy.MatrixSymbol('R',4,4)
+        return Rotations().matrixToEulerSequenceSym(self.sequence,htm)
 
     def direct(self,q1,q2,q3):
         return self.directLambda(q1,q2,q3)
     
-    def inverse(self,y,p,r):
-        return self.inverseLambda(y,p,r)
+    def inverse(self,hmt):
+        return self.inverseLambda(hmt)
 
 
 class Decoupled6DOF:
@@ -869,7 +858,7 @@ class Decoupled6DOF:
         self.directLambda  = lambda q1,q2,q3: None
         self.inverseLambda = lambda x, y, z : None
         # Compute symbolic kinematics and lambda functions
-        self._resetSymbolsAndLambdas()
+        self._resetSymbolsAndLambdas() # TODO: Improve this
 
     def directKinHomoTSymbols(self):
         return self.orientationSide.directKinHomoTSymbols() * self.positionSide.directKinHomoTSymbols()
@@ -932,4 +921,7 @@ if __name__ == "__main__" :
 
     T_arm5 = DenavitDK((T_shz,T_shy,T_shx,T_elz,T_elx,T_thb),"humanArm5")
     T_arm5.genURDF()
+
+    
+
     
