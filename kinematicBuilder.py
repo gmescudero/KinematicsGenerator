@@ -36,17 +36,20 @@ class Rotations:
         # Rodriges formula
         self.p = sympy.Matrix([sympy.Symbol('p_x'),sympy.Symbol('p_y'),sympy.Symbol('p_z'),])
         self.k = sympy.Matrix([sympy.Symbol('k_x'),sympy.Symbol('k_y'),sympy.Symbol('k_z'),])
-        skewK = sympy.Matrix([
-            [ 0,         self.k[2], self.k[1]],
-            [ self.k[2], 0,        -self.k[0]],
-            [-self.k[1], self.k[0], 0]
-        ])
+        skewK = self.skewSymetric(self.k)
         self.rodriges = sympy.eye(3)*sympy.cos(self.alpha) + (1-sympy.cos(self.alpha))*(self.k*self.k.T) + sympy.sin(self.alpha)*skewK
         self.screwMatrix = sympy.Matrix([
             [self.rodriges,     (sympy.eye(3)-self.rodriges)*self.p],
             [sympy.zeros(1,3),  sympy.eye(1)                       ]
         ])
     
+    def skewSymetric(self,vect):
+        return sympy.Matrix([
+            [ 0      ,-vect[2], vect[1]],
+            [ vect[2], 0      ,-vect[0]],
+            [-vect[1], vect[0], 0      ]
+        ])
+
     def eulerToMatrixSequenceSym(self,sequence:str, a=sympy.Symbol('a'),b=sympy.Symbol('b'),c=sympy.Symbol('c')):
         if len(sequence) != 3: return None
         rotSymbols = [a,b,c]
@@ -81,28 +84,36 @@ class Rotations:
     
     def _m2eXYZ(self,rotM):
         euler = [0,0,0]
-        if np.abs(rotM[0,2]) >= 1.0 - 1e-12:
-            sign = 1 if rotM[0,2] > 0 else -pi/2
-            euler[0] = sympy.atan2(sign*rotM[1,0], sign*rotM[2,0])
-            euler[1] = sign*pi/2 
-            euler[2] = 0
-        else:
-            euler[0] = sympy.atan2(-rotM[1,2], rotM[2,2])
-            euler[1] = sympy.asin(  rotM[0,2])
-            euler[2] = sympy.atan2(-rotM[0,1], rotM[0,0])
+
+        euler[0] = sympy.atan2(-rotM[1,2], rotM[2,2])
+        euler[1] = sympy.asin(  rotM[0,2])
+        euler[2] = sympy.atan2(-rotM[0,1], rotM[0,0])
+        try:
+            if np.abs(rotM[0,2]) >= 1.0 - 1e-12:
+                sign = 1 if rotM[0,2] > 0 else -pi/2
+                euler[0] = sympy.atan2(sign*rotM[1,0], sign*rotM[2,0])
+                euler[1] = sign*pi/2 
+                euler[2] = 0
+        except TypeError:
+            pass
+
         return euler
 
     def _m2eZYX(self,rotM,solution=1):
         euler = [0,0,0]
-        if np.abs(rotM[2,0]) >= 1.0 - 1e-12:
-            euler[0] = 0
-            sign = 1.0 if rotM[2,0] < 0 else -1.0
-            euler[1] = sign* pi/2 
-            euler[2] = sympy.atan2( sign*rotM[0,1], sign*rotM[1,1])
-        else:
-            euler[0] = sympy.atan2( rotM[1,0], rotM[0,0])                     # y
-            euler[1] = (0 if solution == 1 else pi/2) - sympy.asin(rotM[2,0]) # p
-            euler[2] = sympy.atan2( rotM[2,1], rotM[2,2])                     # r
+
+        euler[0] = sympy.atan2( rotM[1,0], rotM[0,0])                     # y
+        euler[1] = (0 if solution == 1 else pi/2) - sympy.asin(rotM[2,0]) # p
+        euler[2] = sympy.atan2( rotM[2,1], rotM[2,2])                     # r
+        try:
+            if np.abs(rotM[2,0]) >= 1.0 - 1e-12:
+                euler[0] = 0
+                sign = 1.0 if rotM[2,0] < 0 else -1.0
+                euler[1] = sign*pi*0.5
+                euler[2] = sympy.atan2( sign*rotM[0,1], sign*rotM[0,2])
+        except TypeError:
+            pass
+
         return euler
 
     def eulerToMatrixSequence(self,sequence:str, a,b,c):
@@ -146,6 +157,16 @@ class Rotations:
 
     def rotMatrixZ(self, angle):
         return self.zRotM.subs(self.theta,angle).evalf()
+    
+    def adjointT(self, T):
+        R = sympy.Matrix(T[0:3,0:3])
+        p = sympy.Matrix(T[0:3,3])
+        skewP = self.skewSymetric(p)
+        return sympy.Matrix([
+            [R      , sympy.zeros(3,3)],
+            [skewP*R, R]
+        ])
+
 
 class JointType(Enum):
     """
@@ -378,7 +399,7 @@ class DenavitDK:
         if   OrientationType.NONE == orientation:
             expression = pos
         elif OrientationType.EULER ==  orientation:
-            expression = Rotations().matrixToEulerSequenceSym("zyx",self.directTransformSym)
+            expression = sympy.Matrix([pos,Rotations().matrixToEulerSequenceSym("zyx",rot)])
         elif OrientationType.MATRIX ==  orientation:
             expression = sympy.Matrix([pos, rot[0:3,0], rot[0:3,1] ])
         elif OrientationType.QUATERNION == orientation:
@@ -473,7 +494,7 @@ class DenavitDK:
 
         fileExpressions = [
             ('directKin',  sympy.simplify(self.directTransformSym) if simplify else self.directTransformSym ),
-            ('jacobianPos',sympy.simplify(self.jacobianPos)        if simplify else self.jacobianPos ),
+            # ('jacobianPos',sympy.simplify(self.jacobianPos)        if simplify else self.jacobianPos ),
             ('jacobian',   sympy.simplify(self.jacobian)           if simplify else self.jacobian ),
         ]
 
@@ -481,7 +502,7 @@ class DenavitDK:
         with open(c_name,'w+') as c_file:
             c_file.write(c_code)
     
-    def genURDF(self, filename:str=None):
+    def genURDF(self, filename:str=None, connectorLinks:bool=True):
         if filename is None:
             filename = self.name + ".urdf"
         elif not filename.endswith(".urdf"):
@@ -504,7 +525,7 @@ class DenavitDK:
             # Add world link
             robfile.write(self._genURDFWorldLink(links,scale))
             # Add links
-            robfile.write(self._genURDFLinks(links,scale))
+            robfile.write(self._genURDFLinks(links,scale,connectorLinks))
             # Add joints
             robfile.write(self._genURDFJoints(links))
             # File ending
@@ -538,7 +559,7 @@ class DenavitDK:
         string +=  '\t</joint>\n'
         return string
 
-    def _genURDFLinks(self,links:list,scale:float) -> str:
+    def _genURDFLinks(self,links:list,scale:float,connectorLinks:bool=True) -> str:
         string = ''
         density = 1
         linksNum = 1
@@ -578,7 +599,7 @@ class DenavitDK:
             string +=  '\t</link>\n'
 
             ## Link visual
-            if link > 1e-9:
+            if True == connectorLinks and link > 1e-9:
                 string += f'\t<link name="{name}">\n'
                 # Visual section
                 string +=  '\t\t<visual>\n'
@@ -977,47 +998,81 @@ class Decoupled6DOF:
         return [sympy.Symbol(n) for n in names]
 
 if __name__ == "__main__" :
-    arm  = 10
-    farm = 5
-    palm = 1
-    fing = 1.2
+    # arm  = 10
+    # farm = 5
+    # palm = 1
+    # fing = 1.2
 
-    T_shz = DenavitRow(0    , 0    , 0    , -pi/2, Joint(sympy.Symbol('sh_z'),JointType.ROTATIONAL,upper_limit=165*pi/180, lower_limit=-pi/2))
-    T_shy = DenavitRow(pi/2 , 0    , 0    , pi/2,  Joint(sympy.Symbol('sh_y'),JointType.ROTATIONAL,upper_limit=pi/2,       lower_limit=-pi/2))
-    T_shx = DenavitRow(-pi/2, -arm , 0    , pi/2,  Joint(sympy.Symbol('sh_x'),JointType.ROTATIONAL,upper_limit=pi/2,       lower_limit=-pi/2))
-    T_elz = DenavitRow(0    , 0    , 0    , -pi/2, Joint(sympy.Symbol('el_z'),JointType.ROTATIONAL,upper_limit=165*pi/180, lower_limit=0))
-    T_elx = DenavitRow(0    , -farm, 0    , pi/2,  Joint(sympy.Symbol('el_x'),JointType.ROTATIONAL,upper_limit=pi/6,       lower_limit=-110*pi/180))
-    T_wrz = DenavitRow(pi/2 , 0    , 0    , -pi/2, Joint(sympy.Symbol('wr_z'),JointType.ROTATIONAL,upper_limit=10*pi/180,  lower_limit=-pi/6))
-    T_wry = DenavitRow(0    , 0    , -palm, 0,     Joint(sympy.Symbol('wr_y'),JointType.ROTATIONAL,upper_limit=pi/3,       lower_limit=-pi/2))
-    T_hdy = DenavitRow(0    , 0    , -fing, 0,     Joint(sympy.Symbol('hd_y'),JointType.ROTATIONAL,upper_limit=5*pi/180,   lower_limit=-pi/2))
+    # T_shz = DenavitRow(0    , 0    , 0    , -pi/2, Joint(sympy.Symbol('sh_z'),JointType.ROTATIONAL,upper_limit=165*pi/180, lower_limit=-pi/2))
+    # T_shy = DenavitRow(pi/2 , 0    , 0    , pi/2,  Joint(sympy.Symbol('sh_y'),JointType.ROTATIONAL,upper_limit=pi/2,       lower_limit=-pi/2))
+    # T_shx = DenavitRow(-pi/2, -arm , 0    , pi/2,  Joint(sympy.Symbol('sh_x'),JointType.ROTATIONAL,upper_limit=pi/2,       lower_limit=-pi/2))
+    # T_elz = DenavitRow(0    , 0    , 0    , -pi/2, Joint(sympy.Symbol('el_z'),JointType.ROTATIONAL,upper_limit=165*pi/180, lower_limit=0))
+    # T_elx = DenavitRow(0    , -farm, 0    , pi/2,  Joint(sympy.Symbol('el_x'),JointType.ROTATIONAL,upper_limit=pi/6,       lower_limit=-110*pi/180))
+    # T_wrz = DenavitRow(pi/2 , 0    , 0    , -pi/2, Joint(sympy.Symbol('wr_z'),JointType.ROTATIONAL,upper_limit=10*pi/180,  lower_limit=-pi/6))
+    # T_wry = DenavitRow(0    , 0    , -palm, 0,     Joint(sympy.Symbol('wr_y'),JointType.ROTATIONAL,upper_limit=pi/3,       lower_limit=-pi/2))
+    # T_hdy = DenavitRow(0    , 0    , -fing, 0,     Joint(sympy.Symbol('hd_y'),JointType.ROTATIONAL,upper_limit=5*pi/180,   lower_limit=-pi/2))
 
-    T_arm = DenavitDK((T_shz,T_shy,T_shx,T_elz,T_elx,T_wrz,T_wry,T_hdy),"humanArm8")
-    # T_arm.genURDF()
+    # T_arm = DenavitDK((T_shz,T_shy,T_shx,T_elz,T_elx,T_wrz,T_wry,T_hdy),"humanArm8")
+    # # T_arm.genURDF()
 
-    thumb = 0.8
-    T_thb = DenavitRow(0, 0, -thumb, 0)
+    # thumb = 0.8
+    # T_thb = DenavitRow(0, 0, -thumb, 0)
 
-    T_arm5 = DenavitDK((T_shz,T_shy,T_shx,T_elz,T_elx,T_thb),"humanArm5")
+    # T_arm5 = DenavitDK((T_shz,T_shy,T_shx,T_elz,T_elx,T_thb),"humanArm5")
     # T_arm5.genURDF()
 
     """
     Cartesian 6DoF
     """
-    L = 1
-    T_cartesian = DenavitDK(
-        (
-            DenavitRow( 0,   L,0,-pi/2,Joint(sympy.Symbol('q_x')    ,JointType.PRISMATIC)),
-            DenavitRow(-pi/2,L,0, pi/2,Joint(sympy.Symbol('q_y')    ,JointType.PRISMATIC)),
-            DenavitRow( 0,   L,0, 0   ,Joint(sympy.Symbol('q_z')    ,JointType.PRISMATIC)),
-            DenavitRow( 0,   0,0,-pi/2,Joint(sympy.Symbol('q_yaw')  ,JointType.ROTATIONAL)),
-            DenavitRow(-pi/2,0,0,-pi/2,Joint(sympy.Symbol('q_pitch'),JointType.ROTATIONAL)),
-            DenavitRow(0    ,0,0, 0   ,Joint(sympy.Symbol('q_roll') ,JointType.ROTATIONAL)),
-            # DenavitRow(0,   0.5,0,0),
-        ),
-        "orientable_cartesian",
-        worldToBase= sympy.Matrix([
-            [Rotations().rotMatrixY(pi/2)   , -L*sympy.ones(3,1)],
-            [sympy.zeros(1,3)               , sympy.eye(1)]
-        ])
-    )
-    T_cartesian.genURDF()
+    # L = 100
+    # T_cartesian = DenavitDK(
+    #     (
+    #         DenavitRow( 0,   L,0,-pi/2,Joint(sympy.Symbol('q_x')    ,JointType.PRISMATIC)),
+    #         DenavitRow(-pi/2,L,0, pi/2,Joint(sympy.Symbol('q_y')    ,JointType.PRISMATIC)),
+    #         DenavitRow( 0,   L,0, 0   ,Joint(sympy.Symbol('q_z')    ,JointType.PRISMATIC)),
+    #         DenavitRow( 0,   0,0,-pi/2,Joint(sympy.Symbol('q_yaw')  ,JointType.ROTATIONAL)),
+    #         DenavitRow(-pi/2,0,0,-pi/2,Joint(sympy.Symbol('q_pitch'),JointType.ROTATIONAL)),
+    #         DenavitRow(0    ,0,0, 0   ,Joint(sympy.Symbol('q_roll') ,JointType.ROTATIONAL)),
+    #         # DenavitRow(0,   0.5,0,0),
+    #     ),
+    #     "orientable_cartesian",
+    #     worldToBase= sympy.Matrix([
+    #         [Rotations().rotMatrixY(pi/2)   , -L*sympy.ones(3,1)],
+    #         [sympy.zeros(1,3)               , sympy.eye(1)]
+    #     ])
+    # )
+    # T_cartesian.genURDF()
+
+
+    """
+    UR3e 
+    https://www.universal-robots.com/articles/ur/application-installation/dh-parameters-for-calculations-of-kinematics-and-dynamics/
+    
+				
+    """
+    # T_ur3e = DenavitDK(
+    #     (
+    #         DenavitRow( 0, 0.15185   , 0        , pi/2  ,Joint(sympy.Symbol('q_0'),JointType.ROTATIONAL)),
+    #         DenavitRow( 0, 0         ,-0.24355  , 0     ,Joint(sympy.Symbol('q_1'),JointType.ROTATIONAL)),
+    #         DenavitRow( 0, 0         ,-0.2132   , 0     ,Joint(sympy.Symbol('q_2'),JointType.ROTATIONAL)),
+    #         DenavitRow( 0, 0.13105   , 0        , pi/2  ,Joint(sympy.Symbol('q_3'),JointType.ROTATIONAL)),
+    #         DenavitRow( 0, 0.08535   , 0        ,-pi/2  ,Joint(sympy.Symbol('q_4'),JointType.ROTATIONAL)),
+    #         DenavitRow( 0, 0.0921    , 0        , 0     ,Joint(sympy.Symbol('q_5'),JointType.ROTATIONAL)),
+    #     ),
+    #     "UR3e"
+    # )
+    # # T_ur3e.genURDF(connectorLinks = False)
+    # # T_ur3e.genCCode()
+    # print(T_ur3e.eval((0, 0, 0, 0, 0, 0)))
+    # endpose = np.array((
+    #     # ( 1, 0, 0,-0.45675),
+    #     # ( 0, 0,-1,-0.22315),
+    #     # ( 0, 0,-1,-0.0),
+    #     # ( 0, 1, 0, 0.0665),
+    #     # ( 0, 0, 0, 1)
+    #     ( 1, 0, 0,-0.30),
+    #     ( 0, 0,-1,-0.10),
+    #     ( 0, 1, 0, 0.0665),
+    #     ( 0, 0, 0, 1)
+    # ))
+    # print(T_ur3e.inverseEval((0,0,0,0,0,0),endpose, tolerance=1e-5))
