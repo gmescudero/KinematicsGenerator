@@ -360,7 +360,9 @@ class DenavitDK:
         self.directLambdaTransform = sympy.lambdify(self.jointsSym,self.directTransformSym)
         # Set the jacobian orientation
         self.jacobianOriType = jacobianOrientation
-        # Calculate jacobian
+        # Calcualte geometrical jacobian
+        self.jacobianGeom = self._jacobianGeometric()
+        # Calculate analitical jacobian
         self.jacobian = self._jacobian(jacobianOrientation)
         if self.jacobian is None:
             self.jacobianLambda = None
@@ -383,6 +385,40 @@ class DenavitDK:
     def getTranslationSym(self):
         return self.directTransformSym[0:3,3]
     
+    def _jacobianGeometric(self):
+        """
+        Compute the Geometric jacobian from the Denavit Hartenberg table
+        """
+        jacobianGeom = None
+        zVector = sympy.Matrix([0,0,1])
+        partialT = sympy.eye(4) if self.worldToBase is None else self.worldToBase
+        translationTotal = self.getTranslationSym()
+        for T in self.denavitRows:
+            if (DenavitRow is type(T)):
+                if T.joint is not None:
+                    if T.joint.type == JointType.PRISMATIC:
+                        jacobianColum = sympy.Matrix(sympy.BlockMatrix([
+                            [partialT[0:3,0:3]*zVector],
+                            [sympy.zeros(3,1)]
+                        ]))
+                    elif T.joint.type == JointType.ROTATIONAL:
+                        rotatedZVector = partialT[0:3,0:3]*zVector
+                        jacobianColum = sympy.Matrix(sympy.BlockMatrix([
+                            [rotatedZVector.cross(translationTotal-partialT[0:3,3])],
+                            [rotatedZVector]
+                        ]))
+                    jacobianColum = sympy.nsimplify(jacobianColum,tolerance=1e-12,rational=True).evalf()
+                    if jacobianGeom is None:
+                        jacobianGeom = jacobianColum
+                    else:
+                        jacobianGeom = jacobianGeom.col_insert(999,jacobianColum)
+                # Add the transformation
+                partialT = partialT*T.TransformSym
+            else:
+                partialT = partialT*T
+        return jacobianGeom
+
+
     def _jacobian(self, orientation:OrientationType = OrientationType.EULER):
         """
         Compute the Analitical Jacobian of the forward kinematic transformation
@@ -399,7 +435,7 @@ class DenavitDK:
         if   OrientationType.NONE == orientation:
             expression = pos
         elif OrientationType.EULER ==  orientation:
-            expression = sympy.Matrix([pos,Rotations().matrixToEulerSequenceSym("zyx",rot)])
+            expression = sympy.Matrix([pos,Rotations().matrixToEulerSequenceSym("xyz",rot)])
         elif OrientationType.MATRIX ==  orientation:
             expression = sympy.Matrix([pos, rot[0:3,0], rot[0:3,1] ])
         elif OrientationType.QUATERNION == orientation:
@@ -494,8 +530,8 @@ class DenavitDK:
 
         fileExpressions = [
             ('directKin',  sympy.simplify(self.directTransformSym) if simplify else self.directTransformSym ),
-            # ('jacobianPos',sympy.simplify(self.jacobianPos)        if simplify else self.jacobianPos ),
             ('jacobian',   sympy.simplify(self.jacobian)           if simplify else self.jacobian ),
+            ('jacobianGeometric', sympy.simplify(self.jacobianGeom)       if simplify else self.jacobianGeom )
         ]
 
         [(c_name, c_code), _] = codegen(fileExpressions, "C99", filename, header=False, empty=False)
