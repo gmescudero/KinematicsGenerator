@@ -163,9 +163,13 @@ class Rotations:
         p = sympy.Matrix(T[0:3,3])
         skewP = self.skewSymetric(p)
         return sympy.Matrix([
-            [R      , sympy.zeros(3,3)],
-            [skewP*R, R]
+            [R               , skewP*R],
+            [sympy.zeros(3,3), R]
         ])
+        # return sympy.Matrix([
+        #     [R      , sympy.zeros(3,3)],
+        #     [skewP*R, R]
+        # ])
 
 
 class JointType(Enum):
@@ -357,7 +361,10 @@ class DenavitDK:
         # Set joints array
         self.jointsSym = sympy.Matrix([q for q in self.jointsSym])
         # Set lambda for direct transform
-        self.directLambdaTransform = sympy.lambdify(self.jointsSym,self.directTransformSym)
+        try:
+            self.directLambdaTransform = sympy.lambdify(self.jointsSym,self.directTransformSym)
+        except NameError:
+            self.directLambdaTransform = None
         # Set the jacobian orientation
         self.jacobianOriType = jacobianOrientation
         # Calcualte geometrical jacobian
@@ -374,7 +381,8 @@ class DenavitDK:
             self.jacobianPos = self.jacobian[0:3,:]
             self.jacobianPosLambda = sympy.lambdify(self.jointsSym,self.jacobianPos)
         # Store zero position
-        self.zeroPose = self.eval(np.zeros(self.jointsNum))
+        # if self.directLambdaTransform is not None:
+        #     self.zeroPose = self.eval(np.zeros(self.jointsNum))
 
     def eval(self, jointVal:list):
         return self.directLambdaTransform(*jointVal)
