@@ -5,6 +5,9 @@ from dataclasses import dataclass
 from enum import Enum
 
 def printM(name:str, M):
+    """
+    Print a given matrix of 4 by 4
+    """
     try: 
         M = sympy.nsimplify(M,tolerance=1e-12,rational=True).evalf()
     except Exception:
@@ -24,6 +27,9 @@ class OrientationType(Enum):
     QUATERNION = 2
 
 class Rotations:
+    """
+    A class for grouping common rotation tools
+    """
     def __init__(self):
         self.alpha = sympy.Symbol('alpha')
         self.beta  = sympy.Symbol('beta')
@@ -532,6 +538,9 @@ class DenavitDK:
         return init_joint_pose
 
     def genCCode(self, filename:str=None, simplify:bool = False):
+        """
+        Write direct kinematics and jacobian matrixes into C code
+        """
         from sympy.utilities.codegen import codegen
         if filename is None:
             filename = self.name
@@ -547,6 +556,9 @@ class DenavitDK:
             c_file.write(c_code)
     
     def genURDF(self, filename:str=None, connectorLinks:bool=True):
+        """
+        Build a URDF file with the robot structure. Deactivate visual links in case 3D meshes have to be used. 
+        """
         if filename is None:
             filename = self.name + ".urdf"
         elif not filename.endswith(".urdf"):
@@ -758,6 +770,9 @@ class DenavitDK:
 
 
 class TwoLinkPlanar:
+    """
+    Kinematic definition of a two link planar robot (2DOF)
+    """
 
     def __init__(self, a1=None,a2=None,q1=None,q2=None,x=None,y=None,theta=None) -> None:
         self.a1 = sympy.Symbol('a_1') if a1 is None else a1
@@ -824,7 +839,9 @@ class TwoLinkPlanar:
             self.inverseLambda = lambda x,y: None
 
 class TwoLinkAndBase():
-
+    """
+    Kinematic definition of a two link robot mounted on a rotatory base (3DOF)
+    """
     def __init__(self, a1=None,a2=None,q1=None,q2=None,q3=None,x=None,y=None,z=None,r_expr=None) -> None:
         self.a1 = sympy.Symbol('a_1') if a1 is None else a1
         self.a2 = sympy.Symbol('a_2') if a2 is None else a2
@@ -908,6 +925,10 @@ class TwoLinkAndBase():
 
 
 class SphericalWrist:
+    """
+    Kinematic definition of a spherical wrist consisting of a sequence of 3 rotations whose axes meet at a specific 
+    point (3DOF)
+    """
     def __init__(self, sequence:str, q1=None,q2=None,q3=None,yaw=None,pitch=None,roll=None) -> None:
         self.q1    = sympy.Symbol('q_1') if q1 is None else q1
         self.q2    = sympy.Symbol('q_2') if q2 is None else q2
@@ -977,6 +998,11 @@ class SphericalWrist:
 
 
 class Decoupled6DOF:
+    """
+    Kinematic definiton of a decapled robot arm consisting of a two link planar mounted on a rotatory base and an 
+    spherical wrist mounted at the end of it, so that the position of the control point can be determined by the first
+    part and the orientation can be adjusted by the second (6DOF)
+    """
     def __init__(self,a1=None,a2=None,q1=None,q2=None,q3=None,q4=None,q5=None,q6=None,x=None,y=None,z=None,yaw=None,pitch=None,roll=None) -> None:
         self.a1 = sympy.Symbol('a_1')
         self.a2 = sympy.Symbol('a_2')
@@ -1094,29 +1120,29 @@ if __name__ == "__main__" :
     
 				
     """
-    # T_ur3e = DenavitDK(
-    #     (
-    #         DenavitRow( 0, 0.15185   , 0        , pi/2  ,Joint(sympy.Symbol('q_0'),JointType.ROTATIONAL)),
-    #         DenavitRow( 0, 0         ,-0.24355  , 0     ,Joint(sympy.Symbol('q_1'),JointType.ROTATIONAL)),
-    #         DenavitRow( 0, 0         ,-0.2132   , 0     ,Joint(sympy.Symbol('q_2'),JointType.ROTATIONAL)),
-    #         DenavitRow( 0, 0.13105   , 0        , pi/2  ,Joint(sympy.Symbol('q_3'),JointType.ROTATIONAL)),
-    #         DenavitRow( 0, 0.08535   , 0        ,-pi/2  ,Joint(sympy.Symbol('q_4'),JointType.ROTATIONAL)),
-    #         DenavitRow( 0, 0.0921    , 0        , 0     ,Joint(sympy.Symbol('q_5'),JointType.ROTATIONAL)),
-    #     ),
-    #     "UR3e"
-    # )
-    # # T_ur3e.genURDF(connectorLinks = False)
-    # # T_ur3e.genCCode()
-    # print(T_ur3e.eval((0, 0, 0, 0, 0, 0)))
-    # endpose = np.array((
-    #     # ( 1, 0, 0,-0.45675),
-    #     # ( 0, 0,-1,-0.22315),
-    #     # ( 0, 0,-1,-0.0),
-    #     # ( 0, 1, 0, 0.0665),
-    #     # ( 0, 0, 0, 1)
-    #     ( 1, 0, 0,-0.30),
-    #     ( 0, 0,-1,-0.10),
-    #     ( 0, 1, 0, 0.0665),
-    #     ( 0, 0, 0, 1)
-    # ))
-    # print(T_ur3e.inverseEval((0,0,0,0,0,0),endpose, tolerance=1e-5))
+    T_ur3e = DenavitDK(
+        (
+            DenavitRow( 0, 0.15185   , 0        , pi/2  ,Joint(sympy.Symbol('q_0'),JointType.ROTATIONAL)),
+            DenavitRow( 0, 0         ,-0.24355  , 0     ,Joint(sympy.Symbol('q_1'),JointType.ROTATIONAL)),
+            DenavitRow( 0, 0         ,-0.2132   , 0     ,Joint(sympy.Symbol('q_2'),JointType.ROTATIONAL)),
+            DenavitRow( 0, 0.13105   , 0        , pi/2  ,Joint(sympy.Symbol('q_3'),JointType.ROTATIONAL)),
+            DenavitRow( 0, 0.08535   , 0        ,-pi/2  ,Joint(sympy.Symbol('q_4'),JointType.ROTATIONAL)),
+            DenavitRow( 0, 0.0921    , 0        , 0     ,Joint(sympy.Symbol('q_5'),JointType.ROTATIONAL)),
+        ),
+        "UR3e"
+    )
+    # T_ur3e.genURDF(connectorLinks = False)
+    # T_ur3e.genCCode()
+    print(T_ur3e.eval((0, 0, 0, 0, 0, 0)))
+    endpose = np.array((
+        # ( 1, 0, 0,-0.45675),
+        # ( 0, 0,-1,-0.22315),
+        # ( 0, 0,-1,-0.0),
+        # ( 0, 1, 0, 0.0665),
+        # ( 0, 0, 0, 1)
+        ( 1, 0, 0,-0.30),
+        ( 0, 0,-1,-0.10),
+        ( 0, 1, 0, 0.0665),
+        ( 0, 0, 0, 1)
+    ))
+    print(T_ur3e.inverseEval((0,0,0,0,0,0),endpose, tolerance=1e-5))
