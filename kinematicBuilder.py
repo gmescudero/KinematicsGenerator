@@ -399,11 +399,11 @@ class DenavitDK:
     def getTranslationSym(self):
         return self.directTransformSym[0:3,3]
     
-    def _jacobianGeometric(self):
+    def _jacobianGeometric(self) -> sympy.MutableDenseMatrix:
         """
         Compute the Geometric jacobian from the Denavit Hartenberg table
         """
-        jacobianGeom = None
+        jacobianGeom:sympy.MutableDenseMatrix = None
         zVector = sympy.Matrix([0,0,1])
         partialT = sympy.eye(4) if self.worldToBase is None else self.worldToBase
         translationTotal = self.getTranslationSym()
@@ -537,23 +537,57 @@ class DenavitDK:
         print(f"Failed to compute inverse kinematics (Error: {error})")
         return init_joint_pose
 
-    def genCCode(self, filename:str=None, simplify:bool = False):
+    def _optimize(self, c_code:str):
+        """
+        Improve the output of the codegen function for better performance
+        """
+        for q in self.jointsSym:
+            c_code = c_code.replace(f"cos({q})", f"c{q}")
+            c_code = c_code.replace(f"sin({q})", f"s{q}")
+        lines = c_code.split('\n')
+        for i,l in enumerate(lines):
+            if '{' in l:
+                l += "".join([f"\n\tdouble c{q} = cos({q});" for q in self.jointsSym])
+                l += "".join([f"\n\tdouble s{q} = sin({q});" for q in self.jointsSym])
+                lines[i] = l
+            
+        return "\n".join(lines)
+    
+
+    def genCCode(self, filename:str=None, simplify:bool = False, header:bool = False):
         """
         Write direct kinematics and jacobian matrixes into C code
+
+        #param filename (Default=robot name): the filename where to write the .c and .h files.
+        #param simplify (Default=False): the expression for dk and jacobians. It can make the process very slow.
+        #param header (Default=False): generate a file for the header or not.
         """
         from sympy.utilities.codegen import codegen
         if filename is None:
             filename = self.name
 
+        if simplify:
+            self.directTransformSym = sympy.simplify(self.directTransformSym)
+            self.jacobian           = sympy.simplify(self.jacobian)
+            self.jacobianGeom       = sympy.simplify(self.jacobianGeom)
+
         fileExpressions = [
-            ('directKin',  sympy.simplify(self.directTransformSym) if simplify else self.directTransformSym ),
-            ('jacobian',   sympy.simplify(self.jacobian)           if simplify else self.jacobian ),
-            ('jacobianGeometric', sympy.simplify(self.jacobianGeom)       if simplify else self.jacobianGeom )
+            (f'{self.name}_DirectKin',         self.directTransformSym ),
+            (f'{self.name}_Jacobian',          self.jacobian ),
+            (f'{self.name}_JacobianGeometric', self.jacobianGeom )
         ]
 
-        [(c_name, c_code), _] = codegen(fileExpressions, "C99", filename, header=False, empty=False)
+        [(c_name, c_code), (h_name, h_code)] = codegen(fileExpressions, "C99", filename, header=False, empty=False)
+        c_code = self._optimize(c_code)
+
+        # Write C code for kinematic functions into a .c file
         with open(c_name,'w+') as c_file:
             c_file.write(c_code)
+
+        if header:
+            # Write C code for kinematic functions into a .h file
+            with open(h_name,'w+') as h_file:
+                h_file.write(h_code)
     
     def genURDF(self, filename:str=None, connectorLinks:bool=True):
         """
@@ -564,7 +598,7 @@ class DenavitDK:
         elif not filename.endswith(".urdf"):
             filename += ".urdf"
 
-        # Compute robot scale
+        # Compute robot scale to determine the volume of the parts
         scale = 0
         for dr in self.denavitRows:
             _,d,a,_ = dr.dhParams
@@ -1132,7 +1166,7 @@ if __name__ == "__main__" :
         "UR3e"
     )
     # T_ur3e.genURDF(connectorLinks = False)
-    # T_ur3e.genCCode()
+    T_ur3e.genCCode()
     print(T_ur3e.eval((0, 0, 0, 0, 0, 0)))
     endpose = np.array((
         # ( 1, 0, 0,-0.45675),
