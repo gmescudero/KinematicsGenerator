@@ -3,6 +3,7 @@ import numpy as np
 import sympy
 from dataclasses import dataclass
 from enum import Enum
+import copy as cp
 
 def printM(name:str, M):
     """
@@ -541,14 +542,27 @@ class DenavitDK:
         """
         Improve the output of the codegen function for better performance
         """
-        for q in self.jointsSym:
-            c_code = c_code.replace(f"cos({q})", f"c{q}")
-            c_code = c_code.replace(f"sin({q})", f"s{q}")
+        import regex as re
+
+        # Replace all divisions by their result
+        matches = re.findall(r"([0-9]+)\.([0-9]+)\/([0-9]+)\.([0-9]+)", c_code)
+        for elements in matches:
+            string_to_be_replaced = elements[0]+'.'+elements[1]+'/'+elements[2]+'.'+elements[3]
+            first_element  = float(elements[0]+'.'+elements[1])
+            second_element = float(elements[2]+'.'+elements[3])
+            c_code = c_code.replace(string_to_be_replaced,str(first_element/second_element))
+
+        # Replace cosines and sines for precalculated values
+        # TODO: make this with regex and only add the sines and cosines that are used
+        # TODO: find more paterns to simplify with trigonometry (like sin(x+PI), cos(x+PI), etc.)
+        for q in range(self.jointsNum):
+            c_code = c_code.replace(f"cos(q[{q}])", f"c{q}")
+            c_code = c_code.replace(f"sin(q[{q}])", f"s{q}")
         lines = c_code.split('\n')
         for i,l in enumerate(lines):
             if '{' in l:
-                l += "".join([f"\n\tdouble c{q} = cos({q});" for q in self.jointsSym])
-                l += "".join([f"\n\tdouble s{q} = sin({q});" for q in self.jointsSym])
+                l += "".join([f"\n\tdouble c{q} = cos(q[{q}]);" for q in range(self.jointsNum)])
+                l += "".join([f"\n\tdouble s{q} = sin(q[{q}]);" for q in range(self.jointsNum)])
                 lines[i] = l
             
         return "\n".join(lines)
@@ -571,10 +585,19 @@ class DenavitDK:
             self.jacobian           = sympy.simplify(self.jacobian)
             self.jacobianGeom       = sympy.simplify(self.jacobianGeom)
 
+        joints_as_vector = sympy.Matrix(sympy.MatrixSymbol('q',self.jointsNum,1))
+        directKin = cp.deepcopy(self.directTransformSym)
+        jacobian  = cp.deepcopy(self.jacobian)
+        jacobianG = cp.deepcopy(self.jacobianGeom)
+        for i,q in enumerate(self.jointsSym):
+            directKin = directKin.subs(q,joints_as_vector[i])
+            jacobian  = jacobian.subs(q,joints_as_vector[i])
+            jacobianG = jacobianG.subs(q,joints_as_vector[i])
+
         fileExpressions = [
-            (f'{self.name}_DirectKin',         self.directTransformSym ),
-            (f'{self.name}_Jacobian',          self.jacobian ),
-            (f'{self.name}_JacobianGeometric', self.jacobianGeom )
+            (f'{self.name}_DirectKin',         directKin ),
+            (f'{self.name}_Jacobian',          jacobian  ),
+            (f'{self.name}_JacobianGeometric', jacobianG )
         ]
 
         [(c_name, c_code), (h_name, h_code)] = codegen(fileExpressions, "C99", filename, header=False, empty=False)
