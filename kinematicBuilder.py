@@ -1193,7 +1193,7 @@ if __name__ == "__main__" :
     """
     T_ur3e = DenavitDK(
         (
-            DenavitRow( pi/2, 0.15185   , 0        , pi/2  ,Joint(sympy.Symbol('q_0'),JointType.ROTATIONAL)),
+            DenavitRow( 0, 0.15185   , 0        , pi/2  ,Joint(sympy.Symbol('q_0'),JointType.ROTATIONAL)),
             DenavitRow( 0, 0         ,-0.24355  , 0     ,Joint(sympy.Symbol('q_1'),JointType.ROTATIONAL)),
             DenavitRow( 0, 0         ,-0.2132   , 0     ,Joint(sympy.Symbol('q_2'),JointType.ROTATIONAL)),
             DenavitRow( 0, 0.13105   , 0        , pi/2  ,Joint(sympy.Symbol('q_3'),JointType.ROTATIONAL)),
@@ -1205,7 +1205,6 @@ if __name__ == "__main__" :
     # T_ur3e.genURDF(connectorLinks = False)
     T_ur3e.genCCode()
 
-    exit()
     print(T_ur3e.eval((0, 0, 0, 0, 0, 0)))
     endpose = np.array((
         # ( 1, 0, 0,-0.45675),
