@@ -552,10 +552,22 @@ class DenavitDK:
             second_element = float(elements[2]+'.'+elements[3])
             result = first_element/second_element
             if np.isclose(result, np.pi):
-                result = "PI"
+                result = "M_PI"
             elif np.isclose(result, np.pi/2.0):
-                result = "PI/2"
+                result = "M_PI_2"
             c_code = c_code.replace(string_to_be_replaced,str(result))
+
+        # Replace trigonometric identities
+        for q in range(self.jointsNum):
+            c_code = c_code.replace(f"sin(q[{q}] + M_PI_2)", f"cos(q[{q}])")
+            c_code = c_code.replace(f"sin(q[{q}] - M_PI_2)",f"(-cos(q[{q}]))")
+            c_code = c_code.replace(f"sin(q[{q}] + M_PI)", f"-sin(q[{q}])")
+            c_code = c_code.replace(f"sin(q[{q}] - M_PI)", f"-sin(q[{q}])")
+            c_code = c_code.replace(f"cos(q[{q}] + M_PI_2)",f"(-sin(q[{q}]))")
+            c_code = c_code.replace(f"cos(q[{q}] - M_PI_2)", f"sin(q[{q}])")
+            c_code = c_code.replace(f"cos(q[{q}] + M_PI)", f"-cos(q[{q}])")
+            c_code = c_code.replace(f"cos(q[{q}] - M_PI)", f"-cos(q[{q}])")
+
 
         # Replace cosines and sines for precalculated values
         # TODO: find more paterns to simplify with trigonometry (like sin(x+PI), cos(x+PI), etc.)
@@ -597,21 +609,25 @@ class DenavitDK:
         if simplify:
             self.directTransformSym = sympy.simplify(self.directTransformSym)
             self.jacobian           = sympy.simplify(self.jacobian)
+            self.jacobianPos        = sympy.simplify(self.jacobianPos)
             self.jacobianGeom       = sympy.simplify(self.jacobianGeom)
 
         joints_as_vector = sympy.Matrix(sympy.MatrixSymbol('q',self.jointsNum,1))
-        directKin = cp.deepcopy(self.directTransformSym)
-        jacobian  = cp.deepcopy(self.jacobian)
-        jacobianG = cp.deepcopy(self.jacobianGeom)
+        directKin   = cp.deepcopy(self.directTransformSym)
+        jacobian    = cp.deepcopy(self.jacobian)
+        jacobianPos = cp.deepcopy(self.jacobianPos)
+        jacobianG   = cp.deepcopy(self.jacobianGeom)
         for i,q in enumerate(self.jointsSym):
-            directKin = directKin.subs(q,joints_as_vector[i])
-            jacobian  = jacobian.subs(q,joints_as_vector[i])
-            jacobianG = jacobianG.subs(q,joints_as_vector[i])
+            directKin    = directKin.subs(q,joints_as_vector[i])
+            jacobian     = jacobian.subs(q,joints_as_vector[i])
+            jacobianPos  = jacobianPos.subs(q,joints_as_vector[i])
+            jacobianG    = jacobianG.subs(q,joints_as_vector[i])
 
         fileExpressions = [
-            (f'{self.name}_DirectKin',         directKin ),
-            (f'{self.name}_Jacobian',          jacobian  ),
-            (f'{self.name}_JacobianGeometric', jacobianG )
+            (f'{self.name}_DirectKin',         directKin  ),
+            (f'{self.name}_Jacobian',          jacobian   ),
+            (f'{self.name}_JacobianPos',       jacobianPos),
+            (f'{self.name}_JacobianGeometric', jacobianG  )
         ]
 
         [(c_name, c_code), (h_name, h_code)] = codegen(fileExpressions, "C99", filename, header=False, empty=False)
