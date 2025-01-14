@@ -550,19 +550,33 @@ class DenavitDK:
             string_to_be_replaced = elements[0]+'.'+elements[1]+'/'+elements[2]+'.'+elements[3]
             first_element  = float(elements[0]+'.'+elements[1])
             second_element = float(elements[2]+'.'+elements[3])
-            c_code = c_code.replace(string_to_be_replaced,str(first_element/second_element))
+            result = first_element/second_element
+            if np.isclose(result, np.pi):
+                result = "PI"
+            elif np.isclose(result, np.pi/2.0):
+                result = "PI/2"
+            c_code = c_code.replace(string_to_be_replaced,str(result))
 
         # Replace cosines and sines for precalculated values
-        # TODO: make this with regex and only add the sines and cosines that are used
         # TODO: find more paterns to simplify with trigonometry (like sin(x+PI), cos(x+PI), etc.)
+        dict_subs = {}
         for q in range(self.jointsNum):
-            c_code = c_code.replace(f"cos(q[{q}])", f"c{q}")
-            c_code = c_code.replace(f"sin(q[{q}])", f"s{q}")
+            dict_subs[q] = {"cos":False, "sin": False}
+            if c_code.find(f"cos(q[{q}])"):
+                c_code = c_code.replace(f"cos(q[{q}])", f"c{q}")
+                dict_subs[q]["cos"] = True
+            if c_code.find(f"sin(q[{q}])"):
+                c_code = c_code.replace(f"sin(q[{q}])", f"s{q}")
+                dict_subs[q]["sin"] = True
+
         lines = c_code.split('\n')
         for i,l in enumerate(lines):
             if '{' in l:
-                l += "".join([f"\n\tdouble c{q} = cos(q[{q}]);" for q in range(self.jointsNum)])
-                l += "".join([f"\n\tdouble s{q} = sin(q[{q}]);" for q in range(self.jointsNum)])
+                for q,subs in dict_subs.items():
+                    if subs["cos"]:
+                        lines.insert(i+1, f"   double c{q} = cos(q[{q}]);")
+                    if subs["sin"]:
+                        lines.insert(i+1, f"   double s{q} = sin(q[{q}]);")
                 lines[i] = l
             
         return "\n".join(lines)
@@ -1179,7 +1193,7 @@ if __name__ == "__main__" :
     """
     T_ur3e = DenavitDK(
         (
-            DenavitRow( 0, 0.15185   , 0        , pi/2  ,Joint(sympy.Symbol('q_0'),JointType.ROTATIONAL)),
+            DenavitRow( pi/2, 0.15185   , 0        , pi/2  ,Joint(sympy.Symbol('q_0'),JointType.ROTATIONAL)),
             DenavitRow( 0, 0         ,-0.24355  , 0     ,Joint(sympy.Symbol('q_1'),JointType.ROTATIONAL)),
             DenavitRow( 0, 0         ,-0.2132   , 0     ,Joint(sympy.Symbol('q_2'),JointType.ROTATIONAL)),
             DenavitRow( 0, 0.13105   , 0        , pi/2  ,Joint(sympy.Symbol('q_3'),JointType.ROTATIONAL)),
@@ -1190,6 +1204,8 @@ if __name__ == "__main__" :
     )
     # T_ur3e.genURDF(connectorLinks = False)
     T_ur3e.genCCode()
+
+    exit()
     print(T_ur3e.eval((0, 0, 0, 0, 0, 0)))
     endpose = np.array((
         # ( 1, 0, 0,-0.45675),
