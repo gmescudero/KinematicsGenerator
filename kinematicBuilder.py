@@ -1,8 +1,10 @@
+import os
+import cloudpickle
 from cmath import pi
 import numpy as np
 import sympy
 from dataclasses import dataclass
-from enum import Enum
+from enum import IntEnum
 import copy as cp
 
 def printM(name:str, M):
@@ -21,11 +23,12 @@ def printM(name:str, M):
           f"      \t{float(M[2,0]):.3f}\t{float(M[2,1]):.3f}\t{float(M[2,2]):.3f}")
     
 
-class OrientationType(Enum):
+class OrientationType(IntEnum):
     NONE = -1
     MATRIX = 0
     EULER = 1
     QUATERNION = 2
+
 
 class Rotations:
     """
@@ -179,7 +182,7 @@ class Rotations:
         # ])
 
 
-class JointType(Enum):
+class JointType(IntEnum):
     """
     This Enums the joint types supported 
     """
@@ -200,6 +203,14 @@ class Joint:
     def __post_init__(self):
         if self.name is None:
             self.name = str(self.symbol)
+    
+    def __eq__(self, value):
+        if self.symbol != value.symbol: return False
+        if self.type   != value.type:   return False
+        if self.name   != value.name:   return False
+        if not np.isclose(self.upper_limit, value.upper_limit): return False
+        if not np.isclose(self.lower_limit, value.lower_limit): return False
+        return True
 
 class Denavit:
     """
@@ -258,6 +269,19 @@ class DenavitRow(Denavit):
             self.TransformLambda = sympy.lambdify(sympy.Symbol('x'),T)
         else:
             self.TransformLambda = sympy.lambdify(joint.symbol,T) 
+
+    def __eq__(self, value):
+        try:
+            for i,p in enumerate(self.dhParams):
+                if p != value.dhParams[i]:
+                    return False
+            return self.joint == value.joint
+        except Exception as e:
+            print(e)
+            return False
+    
+    def __repr__(self):
+        return f"DH: {self.dhParams} Joint: {self.joint}"
 
     def get(self):
         return (self.theta,self.d, self.a, self.alfa, self.joint.value)
@@ -341,9 +365,22 @@ class DenavitDK:
                  jacobianOrientation:OrientationType = OrientationType.MATRIX
                  ) -> None:
         
-        self.worldToBase = worldToBase
-        self.tcpOffset = tcpOffset
-        self.denavitRows = denavitRows
+        self.worldToBase     = worldToBase
+        self.tcpOffset       = tcpOffset
+        self.denavitRows     = denavitRows
+        self.jacobianOriType = jacobianOrientation
+        self.name            = robotName if robotName is not None else f"{self.jointsNum}DOF_robot"
+        self.jointsNum = 0
+        for row in denavitRows:
+            if row.joint is not None: self.jointsNum += 1
+
+        # Load a model from file if possible
+        model = self._loadModel()
+        if model is not None:
+            print(f"Retrieved model from file {robotName}.pkl")
+            self.__dict__ = model.__dict__
+            return
+
         self.directTransformSym = sympy.eye(4) if worldToBase is None else worldToBase
         self.jointsSym = []
         # Compute direct kinematis and record joint symbols
@@ -363,8 +400,6 @@ class DenavitDK:
         # self.directTransformSym = sympy.simplify(self.directTransformSym)
         # Set joints number
         self.jointsNum = len(self.jointsSym)
-        # Set the robot name
-        self.name = robotName if robotName is not None else f"{self.jointsNum}DOF_robot"
         # Set joints array
         self.jointsSym = sympy.Matrix([q for q in self.jointsSym])
         # Set lambda for direct transform
@@ -372,8 +407,6 @@ class DenavitDK:
             self.directLambdaTransform = sympy.lambdify(self.jointsSym,self.directTransformSym)
         except NameError:
             self.directLambdaTransform = None
-        # Set the jacobian orientation
-        self.jacobianOriType = jacobianOrientation
         # Calcualte geometrical jacobian
         self.jacobianGeom = self._jacobianGeometric()
         # Calculate analitical jacobian
@@ -390,6 +423,17 @@ class DenavitDK:
         # Store zero position
         # if self.directLambdaTransform is not None:
         #     self.zeroPose = self.eval(np.zeros(self.jointsNum))
+        self._saveModel()
+
+    def __eq__(self, other):
+        if self.jointsNum != other.jointsNum: return False
+        for i,row in enumerate(self.denavitRows):
+            if row != other.denavitRows[i]:
+                return False
+        if self.worldToBase     != other.worldToBase: return False
+        if self.tcpOffset       != other.tcpOffset: return False
+        if self.jacobianOriType != other.jacobianOriType: return False
+        return True
 
     def eval(self, jointVal:list):
         return self.directLambdaTransform(*jointVal)
@@ -854,6 +898,20 @@ class DenavitDK:
 
         string += '\n'
         return string
+
+    def _saveModel(self):
+        with open(f"{self.name}.pkl",'wb') as file:
+            cloudpickle.dump(self,file)
+    
+    def  _loadModel(self):
+        if os.path.exists(f"{self.name}.pkl"):
+            with open(f"{self.name}.pkl",'rb') as file:
+                model:DenavitDK = cloudpickle.load(file)
+                # Check if the model is the same
+                if model == self:
+                    return model
+        return None
+        
 
 
 class TwoLinkPlanar:
