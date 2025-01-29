@@ -420,6 +420,9 @@ class DenavitDK:
             # Calculate position only jacobian
             self.jacobianPos = self.jacobian[0:3,:]
             self.jacobianPosLambda = sympy.lambdify(self.jointsSym,self.jacobianPos)
+            # Calculate orientation only jacobian
+            self.jacobianOri = self.jacobian[3:,:]
+            self.jacobianOriLambda = sympy.lambdify(self.jointsSym,self.jacobianOri)
         # Store zero position
         # if self.directLambdaTransform is not None:
         #     self.zeroPose = self.eval(np.zeros(self.jointsNum))
@@ -654,23 +657,27 @@ class DenavitDK:
             self.directTransformSym = sympy.simplify(self.directTransformSym)
             self.jacobian           = sympy.simplify(self.jacobian)
             self.jacobianPos        = sympy.simplify(self.jacobianPos)
+            self.jacobianOri        = sympy.simplify(self.jacobianOri)
             self.jacobianGeom       = sympy.simplify(self.jacobianGeom)
 
         joints_as_vector = sympy.Matrix(sympy.MatrixSymbol('q',self.jointsNum,1))
         directKin   = cp.deepcopy(self.directTransformSym)
         jacobian    = cp.deepcopy(self.jacobian)
         jacobianPos = cp.deepcopy(self.jacobianPos)
+        jacobianOri = cp.deepcopy(self.jacobianOri)
         jacobianG   = cp.deepcopy(self.jacobianGeom)
         for i,q in enumerate(self.jointsSym):
             directKin    = directKin.subs(q,joints_as_vector[i])
             jacobian     = jacobian.subs(q,joints_as_vector[i])
             jacobianPos  = jacobianPos.subs(q,joints_as_vector[i])
+            jacobianOri  = jacobianOri.subs(q,joints_as_vector[i])
             jacobianG    = jacobianG.subs(q,joints_as_vector[i])
 
         fileExpressions = [
             (f'{self.name}_DirectKin',         directKin  ),
             (f'{self.name}_Jacobian',          jacobian   ),
             (f'{self.name}_JacobianPos',       jacobianPos),
+            (f'{self.name}_JacobianOri',       jacobianOri),
             (f'{self.name}_JacobianGeometric', jacobianG  )
         ]
 
