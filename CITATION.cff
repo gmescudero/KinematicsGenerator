@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+message: If you use this software, please cite it as below.
+title: Kinematics Builder
+abstract: This project provides a library that allows building a kinematic model for a robot from a Denavit Hartenberg table.
+authors:
+- family-names: Moreno Escudero
+  given-names: German
+keywords:
+- kinematics
+- denavit hartenberg
+- urdf
+- C code generation
+- ROS
+version: 1.0
+date-released: 2024-05-08
+url: "https://github.com/gmescudero/KinematicsGenerator"
