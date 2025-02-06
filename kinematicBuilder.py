@@ -6,7 +6,7 @@ import sympy
 from dataclasses import dataclass
 from enum import IntEnum
 import copy as cp
-import pandas as pd
+import csv
 import argparse
 from datetime import datetime
 
@@ -408,8 +408,8 @@ class DenavitDK:
         if tcpOffset is not None:
             self.directTransformSym = self.directTransformSym*tcpOffset
         # Operate fractions
-        from sympy.simplify.fu import TR0
-        self.directTransformSym = TR0(self.directTransformSym)
+        # from sympy.simplify.fu import TR0
+        # self.directTransformSym = TR0(self.directTransformSym)
         self.directTransformSym = self.directTransformSym.evalf()
         # self.directTransformSym = sympy.simplify(self.directTransformSym)
         # Set joints number
@@ -943,20 +943,21 @@ class DenavitDK:
         
 class DenavitDKCsv(DenavitDK):
     def __init__(self, csvFile:str):
-        self.csvFile = csvFile
-        df = pd.read_csv(csvFile)
         denavitRows = []
-        for _, row in df.iterrows():
-            joint = None
-            if not pd.isna(row['joint']):
-                joint_symbol = sympy.Symbol(row['joint'])
-                if   row['joint_type'].upper() == 'ROTATIONAL':
-                    joint = Joint(joint_symbol, JointType.ROTATIONAL, row['upper_limit'], row['lower_limit'])
-                elif row['joint_type'].upper() == 'PRISMATIC':
-                    joint = Joint(joint_symbol, JointType.PRISMATIC, row['upper_limit'], row['lower_limit'])
-                else:
-                    raise Exception(f"Unknown joint type {row['joint_type']}")
-            denavitRows.append(DenavitRow(row['theta'], row['d'], row['a'], row['alpha'], joint))
+        with open(csvFile) as fd:
+            df = csv.reader(fd)
+            next(df)
+            for row in df:
+                joint = None
+                if row[4].strip() != "":
+                    joint_symbol = sympy.Symbol(row[4].strip())
+                    if   row[5].strip().upper() == 'ROTATIONAL':
+                        joint = Joint(joint_symbol, JointType.ROTATIONAL, float(row[6]),float(row[7]))
+                    elif row[5].strip().upper() == 'PRISMATIC':
+                        joint = Joint(joint_symbol, JointType.PRISMATIC, float(row[6]), float(row[7]))
+                    else:
+                        raise Exception(f"Unknown joint type {row[5].strip()}")
+                denavitRows.append(DenavitRow(float(row[0]), float(row[1]), float(row[2]), float(row[3]), joint))
         super().__init__(denavitRows,robotName=os.path.basename(csvFile).split('.')[0])
 
 
