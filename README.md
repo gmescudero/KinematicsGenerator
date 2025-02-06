@@ -23,7 +23,8 @@ To install the KinematicsGenerator script, follow these steps:
 
 To use the KinematicsGenerator script, follow these steps:
 
-1. Prepare a Denavit-Hartenberg parameters table in a CSV file. The included example in file `example_UR3.csv` may be used as template.
+1. Prepare a Denavit-Hartenberg parameters table in a CSV file. The included example in file `example_UR3e.csv` may be used as template. It comes from the [UR3e DH table in the Universal Robots page](
+    https://www.universal-robots.com/articles/ur/application-installation/dh-parameters-for-calculations-of-kinematics-and-dynamics/).
 2. Run the script with the path to your CSV file as an argument:
     ```sh
     python kinematics_generator.py example_UR3.csv
