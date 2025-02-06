@@ -1,11 +1,15 @@
 import os
 import cloudpickle
-from cmath import pi
+from numpy import pi
 import numpy as np
 import sympy
 from dataclasses import dataclass
 from enum import IntEnum
 import copy as cp
+import pandas as pd
+import argparse
+from datetime import datetime
+
 
 def printM(name:str, M):
     """
@@ -189,6 +193,13 @@ class JointType(IntEnum):
     ROTATIONAL = 0
     PRISMATIC = 1
 
+    def __repr__(self):
+        strings = ["ROTATIONAL","PRISMATIC"]
+        return strings[self.value]
+    
+    def __str__(self):
+        return self.__repr__()
+
 @dataclass
 class Joint:
     """
@@ -362,7 +373,8 @@ class DenavitDK:
                  robotName:str = None,
                  worldToBase:sympy.MutableDenseMatrix = None, 
                  tcpOffset:sympy.MutableDenseMatrix = None,
-                 jacobianOrientation:OrientationType = OrientationType.MATRIX
+                 jacobianOrientation:OrientationType = OrientationType.MATRIX,
+                 saveModelToFile:bool = False
                  ) -> None:
         
         self.worldToBase     = worldToBase
@@ -377,7 +389,7 @@ class DenavitDK:
         # Load a model from file if possible
         model = self._loadModel()
         if model is not None:
-            print(f"Retrieved model from file {robotName}.pkl")
+            print(f"{datetime.now()}: Retrieved model from file {robotName}.pkl")
             self.__dict__ = model.__dict__
             return
 
@@ -428,7 +440,8 @@ class DenavitDK:
         # Store zero position
         # if self.directLambdaTransform is not None:
         #     self.zeroPose = self.eval(np.zeros(self.jointsNum))
-        self._saveModel()
+        if saveModelToFile:
+            self._saveModel()
 
     def __eq__(self, other):
         if self.jointsNum != other.jointsNum: return False
@@ -522,9 +535,9 @@ class DenavitDK:
             # Calculate difference and error
             delta = endPose - np.array(currentPose).astype(np.float64)
             error = np.linalg.norm(delta)**2
-            print(f"[{it}] {error}")
+            print(f"\t [{it}] {error}")
             if error < tolerance:
-                print(f"Solution with error {error} in {it} iterations")
+                print(f"{datetime.now()}: Solution with error {error} in {it} iterations")
                 return joints.ravel()
 
             # Compute jacobian, invert it and compute the delta in joints
@@ -534,7 +547,7 @@ class DenavitDK:
 
             joints = joints + deltaJoints
             
-        print(f"Failed to compute positional inverse kinematics (Error: {error})")
+        print(f"{datetime.now()}: Failed to compute positional inverse kinematics (Error: {error})")
         return init_joint_pose
 
     def inverseEval(self, init_joint_pose, end_pose, iterations=100, tolerance=1e-9):
@@ -572,9 +585,9 @@ class DenavitDK:
             # Calculate difference and error
             delta = endPose - currentPose
             error = np.linalg.norm(delta)**2
-            print(f"[{it}] {error}")
+            print(f"\t [{it}] {error}")
             if error < tolerance:
-                print(f"Solution with error {error} in {it} iterations")
+                print(f"{datetime.now()}: Solution with error {error} in {it} iterations")
                 return joints.ravel()
 
             # Compute jacobian, invert it and compute the delta in joints
@@ -584,7 +597,7 @@ class DenavitDK:
 
             joints = joints + deltaJoints
             
-        print(f"Failed to compute inverse kinematics (Error: {error})")
+        print(f"{datetime.now()}: Failed to compute inverse kinematics (Error: {error})")
         return init_joint_pose
 
     def _optimize(self, c_code:str):
@@ -911,6 +924,13 @@ class DenavitDK:
     def _saveModel(self):
         with open(f"{self.name}.pkl",'wb') as file:
             cloudpickle.dump(self,file)
+        with open(f"{self.name}.csv",'w') as file:
+            file.write("theta,d,a,alpha,joint,joint_type,upper_limit,lower_limit\n")
+            for dr in self.denavitRows:
+                if dr.joint is not None:
+                    file.write(f"{dr.dhParams[0]},{dr.dhParams[1]},{dr.dhParams[2]},{dr.dhParams[3]},{dr.joint.name},{dr.joint.type},{dr.joint.upper_limit},{dr.joint.lower_limit}\n")
+                else:
+                    file.write(f"{dr.dhParams[0]},{dr.dhParams[1]},{dr.dhParams[2]},{dr.dhParams[3]},,,,,\n")
     
     def  _loadModel(self):
         if os.path.exists(f"{self.name}.pkl"):
@@ -921,9 +941,55 @@ class DenavitDK:
                     return model
         return None
         
+class DenavitDKCsv(DenavitDK):
+    def __init__(self, csvFile:str):
+        self.csvFile = csvFile
+        df = pd.read_csv(csvFile)
+        denavitRows = []
+        for _, row in df.iterrows():
+            joint = None
+            if not pd.isna(row['joint']):
+                joint_symbol = sympy.Symbol(row['joint'])
+                if   row['joint_type'].upper() == 'ROTATIONAL':
+                    joint = Joint(joint_symbol, JointType.ROTATIONAL, row['upper_limit'], row['lower_limit'])
+                elif row['joint_type'].upper() == 'PRISMATIC':
+                    joint = Joint(joint_symbol, JointType.PRISMATIC, row['upper_limit'], row['lower_limit'])
+                else:
+                    raise Exception(f"Unknown joint type {row['joint_type']}")
+            denavitRows.append(DenavitRow(row['theta'], row['d'], row['a'], row['alpha'], joint))
+        super().__init__(denavitRows,robotName=os.path.basename(csvFile).split('.')[0])
 
+
+def main():
+    parser = argparse.ArgumentParser(description="Kinematics Generator")
+    parser.add_argument('csv_file', type=str, help='Path to the CSV file containing the Denavit-Hartenberg parameters')
+    parser.add_argument('--no-c', action='store_true', help='Do not generate C code for the kinematics')
+    parser.add_argument('--no-urdf', action='store_true', help='Do not generate URDF file for the robot')
+    args = parser.parse_args()
+
+    if os.path.exists(args.csv_file) is False:
+        raise Exception(f"File {args.csv_file} does not exist")
+    
+    # Load the robot from the CSV file
+    print(f"{datetime.now()}: Loading robot Denavit Hartenberg table from {args.csv_file}")
+    robot = DenavitDKCsv(args.csv_file)
+
+    # Generate C code if requested
+    if not args.no_c:
+        print(f"{datetime.now()}: Generating C code for the robot")
+        robot.genCCode()
+
+    # Generate URDF file if requested
+    if not args.no_urdf:
+        print(f"{datetime.now()}: Generating URDF for the robot")
+        robot.genURDF()
 
 if __name__ == "__main__" :
+
+
+    main()
+    exit()
+
     # arm  = 10
     # farm = 5
     # palm = 1
