@@ -393,25 +393,30 @@ class DenavitDK:
             self.__dict__ = model.__dict__
             return
 
-        self.directTransformSym = sympy.eye(4) if worldToBase is None else worldToBase
+        self.homogenousTransfromSym = sympy.eye(4) if worldToBase is None else worldToBase
         self.jointsSym = []
         # Compute direct kinematis and record joint symbols
         for T in denavitRows:
             if (DenavitRow is type(T)):
                 if T.joint is not None:
                     self.jointsSym.append(T.joint.symbol)
-                self.directTransformSym = self.directTransformSym*T.TransformSym
+                self.homogenousTransfromSym = self.homogenousTransfromSym*T.TransformSym
                 # Clean almost zero values
-                self.directTransformSym = sympy.nsimplify(self.directTransformSym,tolerance=1e-12,rational=True)
+                self.homogenousTransfromSym = sympy.nsimplify(self.homogenousTransfromSym,tolerance=1e-12,rational=True)
             else:
-                self.directTransformSym = self.directTransformSym*T
+                self.homogenousTransfromSym = self.homogenousTransfromSym*T
         if tcpOffset is not None:
-            self.directTransformSym = self.directTransformSym*tcpOffset
+            self.homogenousTransfromSym = self.homogenousTransfromSym*tcpOffset
         # Operate fractions
         # from sympy.simplify.fu import TR0
-        # self.directTransformSym = TR0(self.directTransformSym)
-        self.directTransformSym = self.directTransformSym.evalf()
-        # self.directTransformSym = sympy.simplify(self.directTransformSym)
+        # self.homogenousTransfromSym = TR0(self.homogenousTransfromSym)
+        self.homogenousTransfromSym = self.homogenousTransfromSym.evalf()
+        # self.homogenousTransfromSym = sympy.simplify(self.homogenousTransfromSym)
+        self.directTransformSym = sympy.Matrix([
+            self.homogenousTransfromSym[3], self.homogenousTransfromSym[7], self.homogenousTransfromSym[11], 
+            self.homogenousTransfromSym[0], self.homogenousTransfromSym[4], self.homogenousTransfromSym[8], 
+            self.homogenousTransfromSym[1], self.homogenousTransfromSym[5], self.homogenousTransfromSym[9]
+        ])
         # Set joints number
         self.jointsNum = len(self.jointsSym)
         # Set joints array
@@ -457,10 +462,10 @@ class DenavitDK:
         return self.directLambdaTransform(*jointVal)
 
     def getRotationSym(self):
-        return self.directTransformSym[0:3,0:3]
+        return self.homogenousTransfromSym[0:3,0:3]
     
     def getTranslationSym(self):
-        return self.directTransformSym[0:3,3]
+        return self.homogenousTransfromSym[0:3,3]
     
     def _jacobianGeometric(self) -> sympy.MutableDenseMatrix:
         """
