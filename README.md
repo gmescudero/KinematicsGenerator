@@ -24,7 +24,12 @@ To install the KinematicsGenerator script, follow these steps:
 To use the KinematicsGenerator script, follow these steps:
 
 1. Prepare a Denavit-Hartenberg parameters table in a CSV file. The included example in file `example_UR3e.csv` may be used as template. It comes from the [UR3e DH table in the Universal Robots page](
-    https://www.universal-robots.com/articles/ur/application-installation/dh-parameters-for-calculations-of-kinematics-and-dynamics/).
+    https://www.universal-robots.com/articles/ur/application-installation/dh-parameters-for-calculations-of-kinematics-and-dynamics/). This CSV needs to have the following columns in any order:
+    - `theta`, `d`, `a`, `alpha`: Denavit Hartenberg parameters.
+    - `joint_type`: It can be `ROTATIONAL`, `PRISMATIC`, or `None`, to allow for intermediate transforms. Note that this field is not case sensitive. 
+    - `joint` (optional): This allows setting a specific name for some or all the joints in the kinematic chain. It defaults to $ q \# $, being $ \# $ the joint number of the chain starting from 0.
+    - `upper_limit` (optional): The maximum value the joint should reach. It defaults to $2\pi$ for rotationals and $100000$ for prismatics.
+    - `lower_limit` (optional): The minimum value the joint should reach. It defaults to $-2\pi$ for rotationals and $-100000$ for prismatics.
 2. Run the script with the path to your CSV file as an argument:
     ```sh
     python kinematics_generator.py example_UR3.csv

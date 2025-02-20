@@ -993,7 +993,11 @@ class DenavitDKCsv(DenavitDK):
                 joint = None
                 # Check if the joint name is set and assign one if not
                 if "joint" in index.keys():
-                    joint_symbol = sympy.Symbol(row[index["joint"]].strip())
+                    joint_name = row[index["joint"]].strip()
+                    if joint_name != "":
+                        joint_symbol = sympy.Symbol(joint_name)
+                    else:
+                        joint_symbol = sympy.Symbol(f"q{joints_count}")
                 else:
                     joint_symbol = sympy.Symbol(f"q{joints_count}")
                 # Check the symbol type and create the joint
