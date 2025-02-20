@@ -982,18 +982,40 @@ class DenavitDKCsv(DenavitDK):
         denavitRows = []
         with open(csvFile) as fd:
             df = csv.reader(fd)
-            next(df)
+            # Get headers and assing indexes
+            headers = next(df)
+            index = dict({})
+            for i,h in enumerate(headers):
+                index.update({h.strip():i})
+            # Build Denavit-Hartenberg table out of each row
+            joints_count = 0
             for row in df:
                 joint = None
-                if row[4].strip() != "":
-                    joint_symbol = sympy.Symbol(row[4].strip())
-                    if   row[5].strip().upper() == 'ROTATIONAL':
-                        joint = Joint(joint_symbol, JointType.ROTATIONAL, float(row[6]),float(row[7]))
-                    elif row[5].strip().upper() == 'PRISMATIC':
-                        joint = Joint(joint_symbol, JointType.PRISMATIC, float(row[6]), float(row[7]))
-                    else:
-                        raise Exception(f"Unknown joint type {row[5].strip()}")
-                denavitRows.append(DenavitRow(float(row[0]), float(row[1]), float(row[2]), float(row[3]), joint))
+                # Check if the joint name is set and assign one if not
+                if "joint" in index.keys():
+                    joint_symbol = sympy.Symbol(row[index["joint"]].strip())
+                else:
+                    joint_symbol = sympy.Symbol(f"q{joints_count}")
+                # Check the symbol type and create the joint
+                if   row[index["joint_type"]].strip().upper() == 'ROTATIONAL':
+                    upper = row[index["upper_limit"]].strip() if "upper_limit" in index.keys() else  6.283185307179586
+                    lower = row[index["lower_limit"]].strip() if "lower_limit" in index.keys() else -6.283185307179586
+                    joint = Joint(joint_symbol, JointType.ROTATIONAL, float(upper),float(lower))
+                    joints_count += 1
+                elif row[index["joint_type"]].strip().upper() == 'PRISMATIC':
+                    upper = row[index["upper_limit"]].strip() if "upper_limit" in index.keys() else  100000
+                    lower = row[index["lower_limit"]].strip() if "lower_limit" in index.keys() else -100000
+                    joint = Joint(joint_symbol, JointType.PRISMATIC, float(upper),float(lower))
+                    joints_count += 1
+                # Create Denavit Row and append it to the list  
+                denavitRows.append(
+                    DenavitRow(
+                        float(row[index["theta"]]), 
+                        float(row[index["d"]]), 
+                        float(row[index["a"]]), 
+                        float(row[index["alpha"]]), 
+                        joint)
+                )
         super().__init__(denavitRows,robotName=os.path.basename(csvFile).split('.')[0])
 
 
@@ -1024,8 +1046,8 @@ def main():
 if __name__ == "__main__" :
 
 
-    # main()
-    # exit()
+    main()
+    exit()
 
     # arm  = 10
     # farm = 5
