@@ -459,7 +459,7 @@ class DenavitDK:
         return True
 
     def eval(self, jointVal:list):
-        return self.directLambdaTransform(*jointVal)
+        return np.array(self.directLambdaTransform(*jointVal)).astype(np.float64).flatten()
 
     def getRotationSym(self):
         return self.homogenousTransfromSym[0:3,0:3]
@@ -526,19 +526,64 @@ class DenavitDK:
         else:
             raise Exception("Unknown orientation type")
         return expression.jacobian(self.jointsSym)
+    
 
-    def inversePositionEval(self, init_joint_pose, end_pose, iterations=100, tolerance=1e-9):
-        joints  = np.transpose(np.array([init_joint_pose]))
-        endPose = np.transpose(np.array([end_pose]))
+    def _adjustTaskSpaceInput(self, end_pose:np.ndarray, pos_only:bool = False):
+        """
+        Adjust the input pose to the standard format
+        """
+        if (4,4) == end_pose.shape:
+            pos = np.array(end_pose[0:3,3]).astype(np.float64)
+            rot = np.array(end_pose[0:3,0:3]).astype(np.float64)
+            homoT = end_pose
+            vectPose = np.array([
+                pos[0]  , pos[1]  , pos[2],
+                rot[0,0], rot[1,0], rot[2,0],
+                rot[0,1], rot[1,1], rot[2,1]
+            ]).astype(np.float64).transpose()
+        elif 9 == len(end_pose):
+            pos = np.array(end_pose[0:3]).astype(np.float64)
+            v1 = np.array(end_pose[3:6]).astype(np.float64)
+            v2 = np.array(end_pose[6:9]).astype(np.float64)
+            v3 = np.cross(v1,v2)
+            rot = np.array([v1,v2,v3]).astype(np.float64).transpose()
+            homoT = np.array([
+                [rot[0,0], rot[0,1], rot[0,2], pos[0]],
+                [rot[1,0], rot[1,1], rot[1,2], pos[1]],
+                [rot[2,0], rot[2,1], rot[2,2], pos[2]],
+                [0, 0, 0, 1]
+            ]).astype(np.float64)
+            vectPose = end_pose
+        elif 3 == len(end_pose):
+            return end_pose
+        else:
+            raise Exception(f"Invalid pose: {end_pose.shape}")
+
+        if pos_only:
+            return pos
+        elif OrientationType.NONE == self.jacobianOriType:
+            return None
+        elif OrientationType.EULER == self.jacobianOriType:
+            return Rotations().matrixToEulerSequence("zyx",homoT)
+        elif OrientationType.MATRIX == self.jacobianOriType:
+            return vectPose
+        elif OrientationType.QUATERNION == self.jacobianOriType:
+            quat = sympy.Quaternion.from_rotation_matrix(rot)
+            return sympy.Matrix([pos, quat.a, quat.b, quat.c, quat.d ])
+
+
+    def inversePositionEval(self, init_joint_pose, end_pose:np.ndarray, iterations=100, tolerance=1e-9):
+        """
+        Compute the inverse kinematics of the robot just for the position
+        """
+        endPose = self._adjustTaskSpaceInput(end_pose, pos_only=True)
+        joints  = np.transpose(np.array([init_joint_pose]).flatten())
         
         for it in range(iterations):
             # Extract current pose as HTM
             currentPoseMatrix = self.eval(joints.ravel())
-            # Retrive position
-            subs = {sym:val for sym,val in zip(self.jointsSym,joints)}
-            currentPose = sympy.Matrix(currentPoseMatrix.take(3,axis=1)[:3]).evalf(subs = subs)
             # Calculate difference and error
-            delta = endPose - np.array(currentPose).astype(np.float64)
+            delta = endPose - currentPoseMatrix[0:3]
             error = np.linalg.norm(delta)**2
             print(f"\t [{it}] {error}")
             if error < tolerance:
@@ -555,37 +600,22 @@ class DenavitDK:
         print(f"{datetime.now()}: Failed to compute positional inverse kinematics (Error: {error})")
         return init_joint_pose
 
-    def inverseEval(self, init_joint_pose, end_pose, iterations=100, tolerance=1e-9):
+
+    def inverseEval(self, init_joint_pose, end_pose:np.ndarray, iterations=100, tolerance=1e-9):
+        """
+        Compute the inverse kinematics of the robot
+        """
+        # Adjust input to standard method
+        endPose = self._adjustTaskSpaceInput(end_pose)
+
         # Adjust position
-        joints = self.inversePositionEval(init_joint_pose, end_pose.take(3,axis=1)[:3])
-        # Adjust orientation
-        pos = sympy.Matrix(end_pose[0:3,3])
-        rot = sympy.Matrix(end_pose[0:3,0:3])
-        joints = np.transpose(np.array([joints]))
-        if   OrientationType.NONE == self.jacobianOriType:
-            return list(joints.ravel())
-        elif OrientationType.EULER == self.jacobianOriType:
-            endPose = Rotations().matrixToEulerSequence("zyx",end_pose)
-        elif OrientationType.MATRIX == self.jacobianOriType:
-            endPose = sympy.Matrix([pos, rot[0:3,0], rot[0:3,1] ])
-        elif OrientationType.QUATERNION == self.jacobianOriType:
-            quat = sympy.Quaternion.from_rotation_matrix(rot)
-            endPose = sympy.Matrix([pos, quat.a, quat.b, quat.c, quat.d ])
-        endPose = np.array(endPose).astype(np.float64)
+        joints = self.inversePositionEval(init_joint_pose, endPose)
 
         for it in range(iterations):
             # Extract current pose as HTM
             currentPoseMatrix = self.eval(joints.ravel())
             # Adjust orientation type
-            pos = sympy.Matrix(currentPoseMatrix[0:3,3])
-            rot = sympy.Matrix(currentPoseMatrix[0:3,0:3])
-            if   OrientationType.EULER == self.jacobianOriType:
-                currentPose = Rotations().matrixToEulerSequence("zyx",currentPoseMatrix)
-            elif OrientationType.MATRIX == self.jacobianOriType:
-                currentPose = sympy.Matrix([pos, rot[0:3,0], rot[0:3,1] ])
-            elif OrientationType.QUATERNION == self.jacobianOriType:
-                quat = sympy.Quaternion.from_rotation_matrix(rot)
-                currentPose = sympy.Matrix([pos, quat.a, quat.b, quat.c, quat.d ])
+            currentPose = self._adjustTaskSpaceInput(currentPoseMatrix)
             currentPose = np.array(currentPose).astype(np.float64)
             # Calculate difference and error
             delta = endPose - currentPose
@@ -604,6 +634,7 @@ class DenavitDK:
             
         print(f"{datetime.now()}: Failed to compute inverse kinematics (Error: {error})")
         return init_joint_pose
+
 
     def _optimize(self, c_code:str):
         """
@@ -993,8 +1024,8 @@ def main():
 if __name__ == "__main__" :
 
 
-    main()
-    exit()
+    # main()
+    # exit()
 
     # arm  = 10
     # farm = 5
@@ -1057,7 +1088,8 @@ if __name__ == "__main__" :
             DenavitRow( 0, 0.08535   , 0        ,-pi/2  ,Joint(sympy.Symbol('q_4'),JointType.ROTATIONAL)),
             DenavitRow( 0, 0.0921    , 0        , 0     ,Joint(sympy.Symbol('q_5'),JointType.ROTATIONAL)),
         ),
-        "UR3e"
+        "UR3e",
+        saveModelToFile=False
     )
     # T_ur3e.genURDF(connectorLinks = False)
     T_ur3e.genCCode()
@@ -1074,4 +1106,5 @@ if __name__ == "__main__" :
         ( 0, 1, 0, 0.0665),
         ( 0, 0, 0, 1)
     ))
+
     print(T_ur3e.inverseEval((0,0,0,0,0,0),endpose, tolerance=1e-5))

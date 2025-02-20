@@ -2,16 +2,16 @@ import numpy as np
 import sympy
 from numpy import pi
 
-def jacobian_transposed(forward_kin, jacobian, jointsNum, target, max_iter=150, epsilon=1e-6):
+def jacobian_transposed(forward_kin, jacobian, jointsNum, target_in, max_iter=150, epsilon=1e-6):
     """
     Inverse kinematics algorithm using the transposed jacobian method.
     """
-    target = np.concat([target[0:3,3], target[0:3,0], target[0:3,1] ])
+    target = np.concat([target_in[0:3,3], target_in[0:3,0], target_in[0:3,1] ])
     pos_iterations = max_iter
     joints = np.zeros(jointsNum)
     for i in range(max_iter):
         current = forward_kin(*joints)
-        deltaParams = target[0:3] - current[0:3,3]
+        deltaParams = target[0:3] - current[0:3].flatten()
         error = np.linalg.norm(deltaParams)
         if error < epsilon:
             print(f"\t{i} - e:{error} - POS_DONE")
@@ -27,9 +27,8 @@ def jacobian_transposed(forward_kin, jacobian, jointsNum, target, max_iter=150, 
         joints = joints + (alfa * jT) @ deltaParams
 
     for i in range(pos_iterations,max_iter):
-        current = forward_kin(*joints)
-        currentParams = np.concat([current[0:3,3], current[0:3,0], current[0:3,1] ])
-        deltaParams = target - currentParams
+        current = forward_kin(*joints).flatten()
+        deltaParams = target - current
         error = np.linalg.norm(deltaParams)
         if error < epsilon:
             break
@@ -45,15 +44,16 @@ def jacobian_transposed(forward_kin, jacobian, jointsNum, target, max_iter=150, 
     print(f"\t{i} - e:{error}")
     return joints
 
-def jacobian_dls(forward_kin, jacobian, jointsNum, target, max_iter=100, epsilon=1e-6, damp_factor=0.01):
+def jacobian_dls(forward_kin, jacobian, jointsNum, target_in, max_iter=100, epsilon=1e-6, damp_factor=0.01):
     """
     Inverse kinematics algorithm using the damped least squares jacobian method.
     """
+    target = np.concat([target_in[0:3,3], target_in[0:3,0], target_in[0:3,1] ])
     joints = np.zeros(jointsNum)
     error = 1e200
     oldError = 0
     for i in range(max_iter):
-        current = forward_kin(*joints)
+        current = forward_kin(*joints).flatten()
         delta = target - current
         oldError = error
         error = np.linalg.norm(delta)
@@ -72,8 +72,7 @@ def jacobian_dls(forward_kin, jacobian, jointsNum, target, max_iter=100, epsilon
         jT = currentJ.T
         jInv = np.linalg.inv(jT @ currentJ + damp_factor * np.eye(currentJ.shape[1])) @ jT
         # Update joints
-        deltaParams = np.concat([delta[0:3,3], delta[0:3,0], delta[0:3,1] ])
-        joints = joints + jInv @ deltaParams
+        joints = joints + jInv @ delta
 
     print(f"\t{i} - e:{error}")
     return joints
