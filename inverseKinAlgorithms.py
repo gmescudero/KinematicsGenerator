@@ -2,54 +2,72 @@ import numpy as np
 import sympy
 from numpy import pi
 
-def jacobian_transposed(forward_kin, jacobian, jointsNum, target_in, max_iter=150, epsilon=1e-6):
+def compute_error(current, target):
+    error = np.linalg.norm(target.flatten()-current.flatten())**2
+    return error
+
+def prismatics_solve(forward_kin, jacobian, prismatics_map, target, joints):
+    for j,isPrismatic in enumerate(prismatics_map):
+        if isPrismatic:
+            joints[j] = 0.0
+    
+    currentJ = jacobian(*joints)[0:3,:]
+
+    for j,isPrismatic in enumerate(prismatics_map):
+        if isPrismatic:
+            joint_dir = currentJ[:,j]
+            joint_dir = joint_dir / np.linalg.norm(joint_dir)
+
+            current = forward_kin(*joints).flatten()
+            target_dir = target[0:3] - current[0:3]
+
+            joints[j] = np.dot(target_dir, joint_dir)
+    return joints
+
+def jacobian_transposed(forward_kin, jacobian, jointsNum, target_in, joints=None, max_iter=150, epsilon=1e-6):
     """
     Inverse kinematics algorithm using the transposed jacobian method.
     """
-    target = np.concat([target_in[0:3,3], target_in[0:3,0], target_in[0:3,1] ])
-    pos_iterations = max_iter
-    joints = np.zeros(jointsNum)
+    if target_in.shape[0] == 3:
+        target = np.concat([target_in[0:3,3], target_in[0:3,0], target_in[0:3,1] ])
+    else:
+        target = target_in.flatten()
+    if joints is None:
+        joints = np.zeros(jointsNum)
+
     for i in range(max_iter):
-        current = forward_kin(*joints)
-        deltaParams = target[0:3] - current[0:3].flatten()
-        error = np.linalg.norm(deltaParams)
+        # Compute error
+        current = forward_kin(*joints).flatten()
+        error = compute_error(current, target)
         if error < epsilon:
-            print(f"\t{i} - e:{error} - POS_DONE")
-            pos_iterations = i
+            print(f"\t{i} - e:{error} - DONE")
             break
-
-        currentJ = jacobian(*joints)[0:3,:]
-        jT = currentJ.T
-        upper = currentJ @ jT @ deltaParams
-        alfa = (np.dot(deltaParams, upper) / np.dot(upper, upper)) 
         if (i%10 == 0): print(f"\t{i} - e:{error}")
-        # Update joints
-        joints = joints + (alfa * jT) @ deltaParams
 
-    for i in range(pos_iterations,max_iter):
+        # Iterate
         current = forward_kin(*joints).flatten()
         deltaParams = target - current
-        error = np.linalg.norm(deltaParams)
-        if error < epsilon:
-            break
 
         currentJ = jacobian(*joints)
         jT = currentJ.T
         upper = currentJ @ jT @ deltaParams
         alfa = (np.dot(deltaParams, upper) / np.dot(upper, upper)) 
-        if (i%10 == 0): print(f"\t{i} - e:{error}")
-        # Update joints
         joints = joints + (alfa * jT) @ deltaParams
 
-    print(f"\t{i} - e:{error}")
+
+    print(f"\t{i} - e:{error} - FINAL")
     return joints
 
-def jacobian_dls(forward_kin, jacobian, jointsNum, target_in, max_iter=100, epsilon=1e-6, damp_factor=0.01):
+def jacobian_dls(forward_kin, jacobian, jointsNum, target_in, joints=None, max_iter=100, epsilon=1e-6, damp_factor=0.01):
     """
     Inverse kinematics algorithm using the damped least squares jacobian method.
     """
-    target = np.concat([target_in[0:3,3], target_in[0:3,0], target_in[0:3,1] ])
-    joints = np.zeros(jointsNum)
+    if target_in.shape[0] == 3:
+        target = np.concat([target_in[0:3,3], target_in[0:3,0], target_in[0:3,1] ])
+    else:
+        target = target_in.flatten()
+    if joints is None:
+        joints = np.zeros(jointsNum)
     error = 1e200
     oldError = 0
     for i in range(max_iter):
@@ -58,6 +76,7 @@ def jacobian_dls(forward_kin, jacobian, jointsNum, target_in, max_iter=100, epsi
         oldError = error
         error = np.linalg.norm(delta)
         if error < epsilon:
+            print(f"\t{i} - e:{error} - DONE")
             break
         elif (error > oldError) and damp_factor < 10: 
             damp_factor = damp_factor * 1.5
@@ -74,7 +93,7 @@ def jacobian_dls(forward_kin, jacobian, jointsNum, target_in, max_iter=100, epsi
         # Update joints
         joints = joints + jInv @ delta
 
-    print(f"\t{i} - e:{error}")
+    print(f"\t{i} - e:{error} - FINAL")
     return joints
 
 

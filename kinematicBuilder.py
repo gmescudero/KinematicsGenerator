@@ -207,9 +207,9 @@ class Joint:
     """
     symbol: sympy.Symbol
     type: JointType
-    name: str = None
     upper_limit: float = 2*pi
     lower_limit: float =-2*pi
+    name: str = None
 
     def __post_init__(self):
         if self.name is None:
@@ -978,7 +978,7 @@ class DenavitDK:
         return None
         
 class DenavitDKCsv(DenavitDK):
-    def __init__(self, csvFile:str):
+    def __init__(self, csvFile:str, saveModelToFile:bool=False):
         denavitRows = []
         with open(csvFile) as fd:
             df = csv.reader(fd)
@@ -997,9 +997,9 @@ class DenavitDKCsv(DenavitDK):
                     if joint_name != "":
                         joint_symbol = sympy.Symbol(joint_name)
                     else:
-                        joint_symbol = sympy.Symbol(f"q{joints_count}")
+                        joint_symbol = sympy.Symbol(f"q_{joints_count}")
                 else:
-                    joint_symbol = sympy.Symbol(f"q{joints_count}")
+                    joint_symbol = sympy.Symbol(f"q_{joints_count}")
                 # Check the symbol type and create the joint
                 if   row[index["joint_type"]].strip().upper() == 'ROTATIONAL':
                     upper = row[index["upper_limit"]].strip() if "upper_limit" in index.keys() else  6.283185307179586
@@ -1020,7 +1020,7 @@ class DenavitDKCsv(DenavitDK):
                         float(row[index["alpha"]]), 
                         joint)
                 )
-        super().__init__(denavitRows,robotName=os.path.basename(csvFile).split('.')[0])
+        super().__init__(denavitRows,robotName=os.path.basename(csvFile).split('.')[0], saveModelToFile=saveModelToFile)
 
 
 def main():
@@ -1028,6 +1028,7 @@ def main():
     parser.add_argument('csv_file', type=str, help='Path to the CSV file containing the Denavit-Hartenberg parameters')
     parser.add_argument('--no-c', action='store_true', help='Do not generate C code for the kinematics')
     parser.add_argument('--no-urdf', action='store_true', help='Do not generate URDF file for the robot')
+    parser.add_argument('--save-model', action='store_true', help='Save the model into a pickle file for faster reuse')
     args = parser.parse_args()
 
     if os.path.exists(args.csv_file) is False:
