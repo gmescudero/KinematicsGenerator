@@ -24,6 +24,15 @@ def prismatics_solve(forward_kin, jacobian, prismatics_map, target, joints):
             joints[j] = np.dot(target_dir, joint_dir)
     return joints
 
+def clamp_delta(delta, maxDeltas):
+    for i,d in enumerate(delta):
+        if d > maxDeltas[i]:
+            delta[i] = maxDeltas[i]
+        if d < -maxDeltas[i]:
+            delta[i] = -maxDeltas[i]
+    return delta
+
+
 def jacobian_transposed(forward_kin, jacobian, jointsNum, target_in, joints=None, max_iter=150, epsilon=1e-6):
     """
     Inverse kinematics algorithm using the transposed jacobian method.

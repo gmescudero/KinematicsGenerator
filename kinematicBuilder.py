@@ -1036,7 +1036,7 @@ def main():
     
     # Load the robot from the CSV file
     print(f"{datetime.now()}: Loading robot Denavit Hartenberg table from {args.csv_file}")
-    robot = DenavitDKCsv(args.csv_file)
+    robot = DenavitDKCsv(args.csv_file, saveModelToFile=args.save_model)
 
     # Generate C code if requested
     if not args.no_c:
