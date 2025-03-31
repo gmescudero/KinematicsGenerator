@@ -978,7 +978,7 @@ class DenavitDK:
         return None
         
 class DenavitDKCsv(DenavitDK):
-    def __init__(self, csvFile:str, saveModelToFile:bool=False):
+    def __new__(self, csvFile:str, saveModelToFile:bool=False):
         denavitRows = []
         with open(csvFile) as fd:
             df = csv.reader(fd)
@@ -1020,7 +1020,8 @@ class DenavitDKCsv(DenavitDK):
                         float(row[index["alpha"]]), 
                         joint)
                 )
-        super().__init__(denavitRows,robotName=os.path.basename(csvFile).split('.')[0], saveModelToFile=saveModelToFile)
+        # Return a DenavitDK model
+        return DenavitDK(denavitRows,robotName=os.path.basename(csvFile).split('.')[0], saveModelToFile=saveModelToFile)
 
 
 def main():
