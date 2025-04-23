@@ -32,7 +32,7 @@ To use the KinematicsGenerator script, follow these steps:
     - `lower_limit` (optional): The minimum value the joint should reach. It defaults to $-2\pi$ for rotationals and $-100000$ for prismatics.
 2. Run the script with the path to your CSV file as an argument:
     ```sh
-    python kinematics_generator.py example_UR3.csv
+    python kinematicBuilder.py example_UR3.csv
     ```
 3. The script will generate a kinematics model and, from that, it will create:
     - A `.c` file containing:
@@ -50,5 +50,5 @@ To use the KinematicsGenerator script, follow these steps:
 
 For more detailed usage and options, refer to the script's help:
 ```sh
-python kinematics_generator.py --help
+python kinematicBuilder.py --help
 ```
