@@ -669,27 +669,32 @@ class DenavitDK:
 
         # Replace cosines and sines for precalculated values
         # TODO: find more paterns to simplify with trigonometry (like sin(x+PI), cos(x+PI), etc.)
-        dict_subs = {}
-        for q in range(self.jointsNum):
-            dict_subs[q] = {"cos":False, "sin": False}
-            if c_code.find(f"cos(q[{q}])"):
-                c_code = c_code.replace(f"cos(q[{q}])", f"c{q}")
-                dict_subs[q]["cos"] = True
-            if c_code.find(f"sin(q[{q}])"):
-                c_code = c_code.replace(f"sin(q[{q}])", f"s{q}")
-                dict_subs[q]["sin"] = True
+        new_c_code = ''
+        for piece in c_code.split('}'):
+            if len(piece.strip()) == 0: continue
 
-        lines = c_code.split('\n')
-        for i,l in enumerate(lines):
-            if '{' in l:
-                for q,subs in dict_subs.items():
-                    if subs["cos"]:
-                        lines.insert(i+1, f"   double c{q} = cos(q[{q}]);")
-                    if subs["sin"]:
-                        lines.insert(i+1, f"   double s{q} = sin(q[{q}]);")
-                lines[i] = l
-            
-        return "\n".join(lines)
+            dict_subs = {}
+            for q in range(self.jointsNum):
+                dict_subs[q] = {"cos":False, "sin": False}
+                if -1 != piece.find(f"cos(q[{q}])"):
+                    piece = piece.replace(f"cos(q[{q}])", f"c{q}")
+                    dict_subs[q]["cos"] = True
+                if -1 != piece.find(f"sin(q[{q}])"):
+                    piece = piece.replace(f"sin(q[{q}])", f"s{q}")
+                    dict_subs[q]["sin"] = True
+
+            lines = piece.split('\n')
+            for i,l in enumerate(lines):
+                if '{' in l:
+                    for q,subs in dict_subs.items():
+                        if subs["cos"]:
+                            lines.insert(i+1, f"   double c{q} = cos(q[{q}]);")
+                        if subs["sin"]:
+                            lines.insert(i+1, f"   double s{q} = sin(q[{q}]);")
+                    lines[i] = l
+            new_c_code = new_c_code + "\n".join(lines) + '}\n'
+
+        return new_c_code
     
 
     def genCCode(self, filename:str=None, simplify:bool = False, header:bool = False):
