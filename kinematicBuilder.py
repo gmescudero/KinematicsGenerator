@@ -428,6 +428,11 @@ class DenavitDK:
             self.directLambdaTransform = None
         # Calcualte geometrical jacobian
         self.jacobianGeom = self._jacobianGeometric()
+        # Set geometrical jacobian lambda
+        try:
+            self.jacobianGeomLambda = sympy.lambdify(self.jointsSym,self.jacobianGeom)
+        except NameError:
+            self.jacobianGeomLambda = None
         # Calculate analitical jacobian
         self.jacobian = self._jacobian(jacobianOrientation)
         if self.jacobian is None:

@@ -32,6 +32,16 @@ def clamp_delta(delta, maxDeltas):
             delta[i] = -maxDeltas[i]
     return delta
 
+def trim_angles(delta_joints, prismatics_map):
+    short_path_joints = []
+    for j, t in zip(delta_joints, prismatics_map):
+        if not t: 
+            while j > np.pi:
+                j -= 2*np.pi
+            while j < -np.pi:
+                j += 2*np.pi
+        short_path_joints.append(float(j))
+    return short_path_joints
 
 def jacobian_transposed(forward_kin, jacobian, jointsNum, target_in, joints=None, max_iter=150, epsilon=1e-6):
     """
